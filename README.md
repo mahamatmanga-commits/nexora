@@ -46,3 +46,16 @@ src/
 - **Hero** : inclinaison 3D de l'aperçu du dashboard selon la souris, puces flottantes.
 - **Graphiques** : tracé animé, survol avec crosshair et infobulle.
 - `prefers-reduced-motion` respecté.
+
+## Mini-jeu : NOVA Run
+
+Coureur sans fin en canvas 2D (sans dépendance), servi sur **`/runner/`** (`npm run dev` → http://localhost:5173/runner/).
+
+- **Contrôles** : `Espace` / `↑` / clic / toucher pour sauter (maintenir = saut plus haut), `↓` / `S` / clic droit / bouton « Glisser » pour glisser (en l'air : descente rapide), `P` pause, `M` son.
+- **Obstacles procéduraux** : blocs bas et hauts, lasers (à glisser dessous), drones (sauter ou glisser), puis enchaînements (paires, triples, laser + bloc…). Les écarts se resserrent et les motifs se complexifient au fil du temps ; chaque motif est généré pour rester franchissable à la vitesse courante.
+- **Rampes de vitesse** : palier toutes les 14 s (bannière « Vitesse x… »), jusqu'à ~2,45x.
+- **Combo** : chaque obstacle franchi prolonge le combo (fenêtre de 3,2 s) ; multiplicateur +1 tous les 5 combos (max x8), bonus « Juste ! » pour un passage au ras.
+- **Record** persistant dans `localStorage` (`nova-run:best`).
+- **Animations** : squash & stretch au saut et à l'atterrissage, poussière, traînée de vitesse, collision avec hit-stop, ralenti, secousse, flash et éclats ; écran de fin avec redémarrage. `prefers-reduced-motion` respecté.
+
+Code : `runner/index.html`, `src/runner/main.js`, `src/runner/runner.css` (entrée ajoutée dans `vite.config.js`).
