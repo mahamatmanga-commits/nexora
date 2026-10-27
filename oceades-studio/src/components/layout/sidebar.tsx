@@ -4,151 +4,156 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import * as React from "react";
 import {
+  BarChart3,
   CalendarDays,
-  FolderKanban,
   Images,
-  LayoutDashboard,
+  Kanban,
   Megaphone,
   Menu,
   Moon,
-  Plus,
+  PanelLeftClose,
+  PanelLeftOpen,
   Settings,
   Sparkles,
   Sun,
-  Wand2,
-  X,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { usePostEditor } from "@/components/posts/post-editor-provider";
-import { useData } from "@/lib/client/store";
+import { Tooltip } from "@/components/ui/tooltip";
 
 const NAV = [
-  { href: "/", label: "Tableau de bord", icon: LayoutDashboard },
+  { href: "/", label: "Tableau éditorial", icon: Kanban },
   { href: "/calendrier", label: "Calendrier", icon: CalendarDays },
-  { href: "/production", label: "Production", icon: FolderKanban },
   { href: "/campagnes", label: "Campagnes", icon: Megaphone },
-  { href: "/mediatheque", label: "Médiathèque", icon: Images },
-];
-const SMART = [
   { href: "/assistant", label: "Assistant IA", icon: Sparkles },
-  { href: "/planning", label: "Construire mon planning", icon: Wand2 },
+  { href: "/mediatheque", label: "Médiathèque", icon: Images },
+  { href: "/statistiques", label: "Statistiques", icon: BarChart3 },
 ];
 
-function Logo() {
+const COLLAPSE_KEY = "oceades.sidebar.collapsed";
+
+function Logo({ compact }: { compact?: boolean }) {
   return (
-    <Link href="/" className="flex items-center gap-2.5 px-2">
-      <span className="grid h-8 w-8 place-items-center rounded-lg bg-oceades-800 text-white shadow-sm dark:bg-oceades-300 dark:text-oceades-950">
-        <svg viewBox="0 0 24 24" className="h-4.5 w-4.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
+    <Link href="/" className="flex h-8 items-center gap-2.5 px-1.5" aria-label="Océades Studio">
+      <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[#203849] text-white ring-1 ring-white/10">
+        <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden>
           <path d="M3 15c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2" />
           <path d="M3 9c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 3 2" opacity=".55" />
         </svg>
       </span>
-      <span className="leading-tight">
-        <span className="block text-sm font-semibold tracking-tight">Océades Studio</span>
-        <span className="block text-[11px] text-muted-foreground">Calendrier éditorial</span>
-      </span>
+      {!compact && <span className="truncate text-sm font-semibold tracking-tight">Océades Studio</span>}
     </Link>
   );
 }
 
-function NavLink({ href, label, icon: Icon, badge, onNavigate }: { href: string; label: string; icon: React.ElementType; badge?: number; onNavigate?: () => void }) {
+function NavItem({ href, label, icon: Icon, compact, onNavigate }: { href: string; label: string; icon: React.ElementType; compact: boolean; onNavigate?: () => void }) {
   const pathname = usePathname();
   const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
-  return (
+  const link = (
     <Link
       href={href}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
+      aria-label={compact ? label : undefined}
       className={cn(
-        "group flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
-        active && "bg-accent font-medium text-foreground",
+        "flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+        active && "bg-accent text-foreground",
+        compact && "justify-center px-0",
       )}
     >
-      <Icon className={cn("h-4 w-4 shrink-0", active && "text-primary")} />
-      <span className="flex-1 truncate">{label}</span>
-      {!!badge && <span className="rounded-full bg-primary/10 px-1.5 text-[11px] font-medium tabular text-primary">{badge}</span>}
+      <Icon className="h-4 w-4 shrink-0" />
+      {!compact && <span className="truncate">{label}</span>}
     </Link>
+  );
+  return compact ? (
+    <Tooltip content={label} side="right">
+      {link}
+    </Tooltip>
+  ) : (
+    link
   );
 }
 
-function ThemeToggle() {
+function ThemeButton({ compact }: { compact: boolean }) {
   const { resolvedTheme, setTheme } = useTheme();
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
-  const dark = mounted && resolvedTheme === "dark";
+  const dark = !mounted || resolvedTheme === "dark";
   return (
-    <Button variant="ghost" size="sm" className="w-full justify-start gap-2.5 px-2.5 text-muted-foreground" onClick={() => setTheme(dark ? "light" : "dark")}>
-      {dark ? <Sun /> : <Moon />}
-      {dark ? "Mode clair" : "Mode sombre"}
-    </Button>
+    <button
+      type="button"
+      onClick={() => setTheme(dark ? "light" : "dark")}
+      className={cn("flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground", compact && "justify-center px-0")}
+      aria-label={dark ? "Passer en mode clair" : "Passer en mode sombre"}
+    >
+      {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      {!compact && (dark ? "Mode clair" : "Mode sombre")}
+    </button>
   );
 }
 
-function SidebarContent({ onNavigate }: { onNavigate?: () => void }) {
-  const { openNew } = usePostEditor();
-  const { posts } = useData();
-  const toValidate = posts.filter((p) => p.status === "a_valider").length;
+function Content({ compact, onNavigate, onToggle }: { compact: boolean; onNavigate?: () => void; onToggle?: () => void }) {
   return (
-    <div className="flex h-full flex-col gap-5 px-3 py-4">
-      <Logo />
-      <Button
-        className="justify-start"
-        onClick={() => {
-          onNavigate?.();
-          openNew({});
-        }}
-      >
-        <Plus /> Nouvelle publication
-        <kbd className="ml-auto rounded border border-white/20 px-1 text-[10px] font-normal opacity-70">N</kbd>
-      </Button>
+    <div className="flex h-full flex-col gap-4 px-2 py-3">
+      <Logo compact={compact} />
       <nav className="flex flex-col gap-0.5" aria-label="Navigation principale">
-        {NAV.map((item) => (
-          <NavLink key={item.href} {...item} badge={item.href === "/production" ? toValidate : undefined} onNavigate={onNavigate} />
+        {NAV.map((n) => (
+          <NavItem key={n.href} {...n} compact={compact} onNavigate={onNavigate} />
         ))}
       </nav>
-      <div>
-        <p className="mb-1.5 px-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground/70">Intelligence</p>
-        <nav className="flex flex-col gap-0.5" aria-label="Outils intelligents">
-          {SMART.map((item) => (
-            <NavLink key={item.href} {...item} onNavigate={onNavigate} />
-          ))}
-        </nav>
-      </div>
-      <div className="mt-auto flex flex-col gap-0.5 border-t pt-3">
-        <NavLink href="/parametres" label="Paramètres" icon={Settings} onNavigate={onNavigate} />
-        <ThemeToggle />
+      <div className="mt-auto flex flex-col gap-0.5">
+        <NavItem href="/parametres" label="Paramètres" icon={Settings} compact={compact} onNavigate={onNavigate} />
+        <ThemeButton compact={compact} />
+        {onToggle && (
+          <button
+            type="button"
+            onClick={onToggle}
+            className={cn("flex h-8 items-center gap-2.5 rounded-md px-2 text-[13px] text-muted-foreground hover:bg-accent hover:text-foreground", compact && "justify-center px-0")}
+            aria-label={compact ? "Déplier le menu" : "Replier le menu"}
+          >
+            {compact ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            {!compact && "Replier"}
+          </button>
+        )}
       </div>
     </div>
   );
 }
 
 export function Sidebar() {
+  const [compact, setCompact] = React.useState(false);
   const [open, setOpen] = React.useState(false);
   const pathname = usePathname();
   React.useEffect(() => setOpen(false), [pathname]);
+  React.useEffect(() => {
+    try {
+      setCompact(localStorage.getItem(COLLAPSE_KEY) === "1");
+    } catch {}
+  }, []);
+  const toggle = () =>
+    setCompact((c) => {
+      try {
+        localStorage.setItem(COLLAPSE_KEY, c ? "0" : "1");
+      } catch {}
+      return !c;
+    });
 
   return (
     <>
-      <aside className="sticky top-0 hidden h-dvh w-60 shrink-0 border-r bg-sidebar lg:block">
-        <SidebarContent />
+      <aside className={cn("sticky top-0 hidden h-dvh shrink-0 border-r bg-sidebar transition-[width] duration-200 lg:block", compact ? "w-14" : "w-52")}>
+        <Content compact={compact} onToggle={toggle} />
       </aside>
-      {/* Barre supérieure mobile */}
-      <div className="sticky top-0 z-40 flex h-14 items-center gap-2 border-b bg-sidebar/90 px-3 backdrop-blur lg:hidden">
-        <Button variant="ghost" size="icon" onClick={() => setOpen(true)} aria-label="Ouvrir le menu">
-          <Menu />
-        </Button>
+      <div className="sticky top-0 z-40 flex h-12 items-center gap-1 border-b bg-sidebar px-2 lg:hidden">
+        <button type="button" onClick={() => setOpen(true)} className="grid h-9 w-9 place-items-center rounded-md hover:bg-accent" aria-label="Ouvrir le menu">
+          <Menu className="h-5 w-5" />
+        </button>
         <Logo />
       </div>
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden">
-          <div className="absolute inset-0 bg-oceades-950/40 animate-in fade-in-0" onClick={() => setOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-72 border-r bg-sidebar shadow-xl animate-in slide-in-from-left duration-200">
-            <Button variant="ghost" size="icon-sm" className="absolute right-2 top-3" onClick={() => setOpen(false)} aria-label="Fermer le menu">
-              <X />
-            </Button>
-            <SidebarContent onNavigate={() => setOpen(false)} />
+          <div className="absolute inset-0 bg-black/50 animate-in fade-in-0" onClick={() => setOpen(false)} />
+          <aside className="absolute inset-y-0 left-0 w-60 border-r bg-sidebar shadow-xl animate-in slide-in-from-left duration-200">
+            <Content compact={false} onNavigate={() => setOpen(false)} />
           </aside>
         </div>
       )}

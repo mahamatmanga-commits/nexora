@@ -12,28 +12,27 @@ import {
   startOfWeek,
 } from "date-fns";
 import { Plus } from "lucide-react";
-import type { Campaign, Post } from "@/lib/domain/types";
+import type { Campaign, Card } from "@/lib/domain/types";
 import { dayKey, fmt } from "@/lib/dates";
 import { momentsBetween } from "@/lib/insights/seasonal";
 import { cn, tint } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip } from "@/components/ui/tooltip";
-import { DropZone, PostChip, type ChipContext } from "./post-chip";
-import { postColor } from "@/components/posts/post-badges";
+import { DropZone, CalChip, type ChipContext } from "./cal-chip";
 
 const WEEKDAYS = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
-const MAX_VISIBLE = 2;
+const MAX_VISIBLE = 3;
 
 export function MonthView({
   anchor,
-  posts,
+  cards: posts,
   campaigns,
   ctx,
   onCreate,
   onSelectDay,
 }: {
   anchor: Date;
-  posts: Post[];
+  cards: Card[];
   campaigns: Campaign[];
   ctx: ChipContext;
   onCreate: (day: string) => void;
@@ -44,7 +43,7 @@ export function MonthView({
   const days = eachDayOfInterval({ start, end });
 
   const byDay = React.useMemo(() => {
-    const map = new Map<string, Post[]>();
+    const map = new Map<string, Card[]>();
     for (const p of posts) {
       if (!p.scheduledAt) continue;
       const k = p.scheduledAt.slice(0, 10);
@@ -135,13 +134,13 @@ export function MonthView({
                   aria-label={`${list.length} publication(s) le ${fmt(day, "d MMMM")}`}
                 >
                   {list.slice(0, 6).map((p) => (
-                    <span key={p.id} className="h-2 w-2 rounded-full" style={{ backgroundColor: postColor(p, ctx.colorMode, ctx.campaigns) }} />
+                    <span key={p.id} className="h-2 w-2 rounded-full" style={{ backgroundColor: ctx.colorOf(p) }} />
                   ))}
                 </button>
               )}
               <div className="hidden min-w-0 flex-col gap-0.5 sm:flex">
                 {visible.map((p) => (
-                  <PostChip key={p.id} post={p} ctx={ctx} variant="month" />
+                  <CalChip key={p.id} card={p} ctx={ctx} />
                 ))}
                 {hidden > 0 && (
                   <Popover>
@@ -153,7 +152,7 @@ export function MonthView({
                     <PopoverContent className="flex w-64 flex-col gap-1">
                       <p className="mb-1 text-xs font-medium capitalize">{fmt(day, "EEEE d MMMM")}</p>
                       {list.map((p) => (
-                        <PostChip key={p.id} post={p} ctx={ctx} />
+                        <CalChip key={p.id} card={p} ctx={ctx} />
                       ))}
                     </PopoverContent>
                   </Popover>

@@ -1,5 +1,10 @@
-import { DashboardPage } from "@/components/dashboard/dashboard-page";
+import { Suspense } from "react";
+import { BoardPage } from "@/components/board/board-page";
 
 export default function Page() {
-  return <DashboardPage />;
+  return (
+    <Suspense>
+      <BoardPage />
+    </Suspense>
+  );
 }

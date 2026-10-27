@@ -1,4 +1,4 @@
-> **Nouveau : [Océades Studio](./oceades-studio/README.md)** — application de calendrier éditorial pour les Océades (Next.js), dans le dossier `oceades-studio/`.
+> **Nouveau : [Océades Studio](./oceades-studio/README.md)** — tableau éditorial façon Trello pour les Océades (Next.js), dans le dossier `oceades-studio/`.
 
 # NOVA — Landing page SaaS
 

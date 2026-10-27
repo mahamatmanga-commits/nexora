@@ -13,6 +13,7 @@ interface MediaRow {
   mime_type: string;
   size: number;
   category: string;
+  activity: string | null;
   tags: string;
   storage_key: string;
   rights_checked: number;
@@ -29,6 +30,7 @@ function toMedia(r: MediaRow): MediaItem {
     mimeType: r.mime_type,
     size: r.size,
     category: r.category as MediaCategory,
+    activity: (r.activity as MediaItem["activity"]) ?? null,
     tags: JSON.parse(r.tags || "[]"),
     rightsChecked: r.rights_checked === 1,
     notes: r.notes,
@@ -110,6 +112,10 @@ export async function updateMedia(id: string, patch: MediaPatch): Promise<MediaI
   const values: (string | number)[] = [];
   if (patch.name !== undefined) (sets.push("name = ?"), values.push(patch.name));
   if (patch.category !== undefined) (sets.push("category = ?"), values.push(patch.category));
+  if (patch.activity !== undefined) {
+    sets.push("activity = ?");
+    values.push(patch.activity as unknown as string);
+  }
   if (patch.notes !== undefined) (sets.push("notes = ?"), values.push(patch.notes));
   if (patch.tags !== undefined) {
     sets.push("tags = ?");

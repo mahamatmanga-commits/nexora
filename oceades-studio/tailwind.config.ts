@@ -24,6 +24,8 @@ const config: Config = {
         popover: { DEFAULT: "hsl(var(--popover))", foreground: "hsl(var(--popover-foreground))" },
         card: { DEFAULT: "hsl(var(--card))", foreground: "hsl(var(--card-foreground))" },
         sidebar: "hsl(var(--sidebar))",
+        list: "hsl(var(--list))",
+        tile: "hsl(var(--tile))",
         oceades: {
           50: "#f2f6f8", 100: "#e0e9ef", 200: "#c3d4df", 300: "#97b4c6", 400: "#648da6",
           500: "#47708b", 600: "#385a73", 700: "#2e4a5f", 800: "#203849", 900: "#1a2d3b", 950: "#101d27",

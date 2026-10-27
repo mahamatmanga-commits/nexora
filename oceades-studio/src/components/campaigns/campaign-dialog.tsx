@@ -3,26 +3,28 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
-import { ACTIVITIES, ACTIVITY_COLORS, ACTIVITY_LABELS, CAMPAIGN_COLORS, CAMPAIGN_KINDS, CAMPAIGN_KIND_LABELS } from "@/lib/domain/constants";
+import { ACTIVITY_KEYS, CAMPAIGN_COLORS, CAMPAIGN_KINDS, CAMPAIGN_KIND_LABELS, type ActivityKey } from "@/lib/domain/constants";
 import { campaignInputSchema, type CampaignInput } from "@/lib/domain/schemas";
 import type { Campaign } from "@/lib/domain/types";
 import { useData } from "@/lib/client/store";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input, Label, NativeSelect, Textarea } from "@/components/ui/input";
-import { cn, tint } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { dayKey } from "@/lib/dates";
 import { addDays } from "date-fns";
 
 type Errors = Partial<Record<keyof CampaignInput, string>>;
 
 export function CampaignDialog({ open, onOpenChange, campaign }: { open: boolean; onOpenChange: (o: boolean) => void; campaign: Campaign | null }) {
-  const { createCampaign, updateCampaign, deleteCampaign, posts } = useData();
+  const { createCampaign, updateCampaign, deleteCampaign, cards, labels } = useData();
+  const activityLabel = (k: ActivityKey) => labels.find((l) => l.key === k);
   const initial: CampaignInput = campaign
     ? {
         name: campaign.name,
         kind: campaign.kind,
         objective: campaign.objective,
+        brief: campaign.brief,
         startDate: campaign.startDate,
         endDate: campaign.endDate,
         activities: campaign.activities,
@@ -34,6 +36,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: { open: boolean
         name: "",
         kind: "campagne",
         objective: "",
+        brief: "",
         startDate: dayKey(new Date()),
         endDate: dayKey(addDays(new Date(), 14)),
         activities: [],
@@ -68,8 +71,8 @@ export function CampaignDialog({ open, onOpenChange, campaign }: { open: boolean
 
   async function remove() {
     if (!campaign) return;
-    const count = posts.filter((p) => p.campaignId === campaign.id).length;
-    if (!window.confirm(`Supprimer « ${campaign.name} » ?${count ? ` Les ${count} publication(s) associée(s) seront conservées mais détachées.` : ""}`)) return;
+    const count = cards.filter((p) => p.campaignId === campaign.id).length;
+    if (!window.confirm(`Supprimer « ${campaign.name} » ?${count ? ` Les ${count} carte(s) associée(s) seront conservées mais détachées.` : ""}`)) return;
     if (await deleteCampaign(campaign.id)) {
       toast.success("Campagne supprimée");
       onOpenChange(false);
@@ -81,7 +84,7 @@ export function CampaignDialog({ open, onOpenChange, campaign }: { open: boolean
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle>{campaign ? "Modifier la campagne" : "Nouvelle campagne"}</DialogTitle>
-          <DialogDescription>Les campagnes et événements apparaissent dans le calendrier et guident le générateur de planning.</DialogDescription>
+          <DialogDescription className="sr-only">Informations de la campagne</DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 overflow-y-auto p-5 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5 sm:col-span-2">
@@ -126,8 +129,10 @@ export function CampaignDialog({ open, onOpenChange, campaign }: { open: boolean
           <div className="flex flex-col gap-1.5 sm:col-span-2">
             <Label>Activités concernées</Label>
             <div className="flex flex-wrap gap-1.5">
-              {ACTIVITIES.map((a) => {
+              {ACTIVITY_KEYS.map((a) => {
                 const on = form.activities.includes(a);
+                const label = activityLabel(a);
+                const color = label?.color ?? "#596773";
                 return (
                   <button
                     key={a}
@@ -135,9 +140,9 @@ export function CampaignDialog({ open, onOpenChange, campaign }: { open: boolean
                     aria-pressed={on}
                     onClick={() => set("activities", on ? form.activities.filter((x) => x !== a) : [...form.activities, a])}
                     className={cn("rounded-md border px-2.5 py-1 text-xs transition", on && "border-transparent font-medium")}
-                    style={on ? { backgroundColor: tint(ACTIVITY_COLORS[a], 0.14), color: ACTIVITY_COLORS[a] } : undefined}
+                    style={on ? { backgroundColor: color, color: "#fff" } : undefined}
                   >
-                    {ACTIVITY_LABELS[a]}
+                    {label?.name ?? a}
                   </button>
                 );
               })}
@@ -146,6 +151,10 @@ export function CampaignDialog({ open, onOpenChange, campaign }: { open: boolean
           <div className="flex flex-col gap-1.5 sm:col-span-2">
             <Label htmlFor="c-obj">Objectif</Label>
             <Input id="c-obj" value={form.objective} onChange={(e) => set("objective", e.target.value)} placeholder="Ex. 150 séances d'essai réservées" />
+          </div>
+          <div className="flex flex-col gap-1.5 sm:col-span-2">
+            <Label htmlFor="c-brief">Brief</Label>
+            <Textarea id="c-brief" rows={3} value={form.brief} onChange={(e) => set("brief", e.target.value)} />
           </div>
           <div className="flex flex-col gap-1.5 sm:col-span-2">
             <Label htmlFor="c-target">Public cible</Label>

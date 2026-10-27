@@ -35,7 +35,7 @@ export function Segmented<T extends string>({
   className?: string;
 }) {
   return (
-    <div role="tablist" className={cn("inline-flex items-center rounded-lg bg-muted p-0.5", className)}>
+    <div role="tablist" className={cn("inline-flex max-w-full items-center overflow-x-auto rounded-lg bg-muted p-0.5 scrollbar-thin", className)}>
       {options.map((o) => (
         <button
           key={o.value}
@@ -46,7 +46,7 @@ export function Segmented<T extends string>({
           title={o.icon && typeof o.label === "string" ? o.label : undefined}
           onClick={() => onChange(o.value)}
           className={cn(
-            "inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-all hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:h-3.5 [&_svg]:w-3.5",
+            "inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-all hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:h-3.5 [&_svg]:w-3.5",
             value === o.value && "bg-card text-foreground shadow-sm",
           )}
         >
@@ -54,18 +54,6 @@ export function Segmented<T extends string>({
           <span className={cn(o.icon && "hidden sm:inline")}>{o.label}</span>
         </button>
       ))}
-    </div>
-  );
-}
-
-export function PageHeader({ title, description, children }: { title: string; description?: React.ReactNode; children?: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-      <div className="min-w-0">
-        <h1 className="text-xl font-semibold tracking-tight sm:text-2xl">{title}</h1>
-        {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
-      </div>
-      {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
     </div>
   );
 }

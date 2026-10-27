@@ -1,9 +1,9 @@
 import { differenceInCalendarDays } from "date-fns";
-import type { Post } from "@/lib/domain/types";
+import type { Card } from "@/lib/domain/types";
 import { parseLocal } from "@/lib/dates";
 
 /**
- * Détection des répétitions : compare le vocabulaire (titre + accroche + description) des publications
+ * Détection des répétitions : compare le vocabulaire (titre + accroche + texte du post) des cartes
  * proches dans le temps. Algorithme local et explicable (similarité de Jaccard sur les mots significatifs),
  * aucun appel externe.
  */
@@ -40,70 +40,32 @@ export function similarity(a: Set<string>, b: Set<string>): number {
 }
 
 export interface RepetitionWarning {
-  postId: string;
   otherId: string;
   otherTitle: string;
   daysApart: number;
   score: number;
-  reason: string;
+  published: boolean;
 }
 
-const WINDOW_DAYS = 21;
-
-function textOf(p: Pick<Post, "title" | "hook" | "description">) {
-  return `${p.title} ${p.title} ${p.hook} ${p.description}`;
+function textOf(c: Pick<Card, "title" | "hook" | "caption">) {
+  return `${c.title} ${c.title} ${c.hook} ${c.caption}`;
 }
 
-/** Signale, pour une publication donnée, les contenus trop proches publiés ou prévus dans une fenêtre de 3 semaines. */
-export function findRepetitions(
-  target: Pick<Post, "id" | "title" | "hook" | "description" | "activity" | "format" | "scheduledAt">,
-  posts: Post[],
-): RepetitionWarning[] {
-  if (!target.scheduledAt) return [];
-  const targetDate = parseLocal(target.scheduledAt);
-  const targetTokens = tokens(textOf(target));
-  const warnings: RepetitionWarning[] = [];
-  for (const other of posts) {
-    if (other.id === target.id || !other.scheduledAt) continue;
-    const days = Math.abs(differenceInCalendarDays(parseLocal(other.scheduledAt), targetDate));
-    if (days > WINDOW_DAYS) continue;
-    const score = similarity(targetTokens, tokens(textOf(other)));
-    const sameAngle = other.activity === target.activity && other.format === target.format;
-    if (score >= 0.35 || (sameAngle && score >= 0.2)) {
-      warnings.push({
-        postId: target.id,
-        otherId: other.id,
-        otherTitle: other.title,
-        daysApart: days,
-        score,
-        reason: sameAngle
-          ? `Même activité et même format, sujet proche (${Math.round(score * 100)} % de vocabulaire commun)`
-          : `Sujet proche (${Math.round(score * 100)} % de vocabulaire commun)`,
-      });
-    } else if (sameAngle && days <= 2) {
-      warnings.push({
-        postId: target.id,
-        otherId: other.id,
-        otherTitle: other.title,
-        daysApart: days,
-        score,
-        reason: "Même activité et même format à moins de 48 h",
-      });
-    }
+/**
+ * Contenus trop proches d'une carte : même vocabulaire (≥ 35 %) dans une fenêtre de 45 jours avant
+ * et 21 jours après sa date (ou autour d'aujourd'hui si elle n'est pas datée).
+ */
+export function findRepetitions(target: Pick<Card, "id" | "title" | "hook" | "caption" | "scheduledAt">, cards: Card[]): RepetitionWarning[] {
+  const ref = target.scheduledAt ? parseLocal(target.scheduledAt) : new Date();
+  const mine = tokens(textOf(target));
+  if (mine.size < 2) return [];
+  const out: RepetitionWarning[] = [];
+  for (const other of cards) {
+    if (other.id === target.id || other.archivedAt || !other.scheduledAt) continue;
+    const days = differenceInCalendarDays(parseLocal(other.scheduledAt), ref);
+    if (days < -45 || days > 21) continue;
+    const score = similarity(mine, tokens(textOf(other)));
+    if (score >= 0.35) out.push({ otherId: other.id, otherTitle: other.title, daysApart: Math.abs(days), score, published: other.status === "publie" });
   }
-  return warnings.sort((a, b) => b.score - a.score);
-}
-
-export function allRepetitions(posts: Post[]): RepetitionWarning[] {
-  const seen = new Set<string>();
-  const result: RepetitionWarning[] = [];
-  for (const p of posts) {
-    for (const w of findRepetitions(p, posts)) {
-      const key = [w.postId, w.otherId].sort().join("|");
-      if (seen.has(key)) continue;
-      seen.add(key);
-      result.push(w);
-    }
-  }
-  return result;
+  return out.sort((a, b) => b.score - a.score);
 }

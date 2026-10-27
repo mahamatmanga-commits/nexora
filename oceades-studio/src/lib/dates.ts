@@ -39,3 +39,31 @@ export function fmt(date: Date, pattern: string): string {
 export function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+
+/** Lundi de la semaine contenant la date (AAAA-MM-JJ). */
+export function mondayOf(date: Date): string {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - day);
+  return format(d, "yyyy-MM-dd");
+}
+
+function dayLabel(d: Date): string {
+  return d.getDate() === 1 ? "1er" : String(d.getDate());
+}
+
+/** « Semaine du 26 octobre au 1er novembre » / « Semaine du 2 au 8 novembre ». */
+export function weekListName(monday: string): string {
+  const start = parse(monday, "yyyy-MM-dd", new Date());
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  const sameMonth = start.getMonth() === end.getMonth();
+  const startLabel = sameMonth ? dayLabel(start) : `${dayLabel(start)} ${format(start, "MMMM", { locale: fr })}`;
+  return `Semaine du ${startLabel} au ${dayLabel(end)} ${format(end, "MMMM", { locale: fr })}`;
+}
+
+export function addDaysKey(day: string, n: number): string {
+  const d = parse(day, "yyyy-MM-dd", new Date());
+  d.setDate(d.getDate() + n);
+  return format(d, "yyyy-MM-dd");
+}

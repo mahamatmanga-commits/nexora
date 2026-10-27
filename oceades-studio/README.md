@@ -1,96 +1,104 @@
-# Océades Studio — calendrier éditorial
+# Océades Studio
 
-Outil de pilotage de la communication digitale des Océades (Fitness, Musculation, Aquatique, Institut) :
-calendrier éditorial, fiches de publication, suivi de production, campagnes, médiathèque, assistant IA
-et générateur de planning.
-
-> Les contenus livrés au premier démarrage sont des **données de démonstration** (badge « Démo »).
-> Supprimez-les en un clic dans **Paramètres → Données de démonstration**.
+Tableau éditorial façon Trello pour piloter la communication digitale des Océades : tableaux, listes par semaine, cartes de contenu, étiquettes par familles, fiches détaillées, calendrier synchronisé, campagnes, médiathèque, assistant IA et import Trello.
 
 ## Démarrer
 
-Prérequis : **Node.js 22.13 ou plus récent** (la base SQLite utilise le module intégré `node:sqlite`, sans compilation native).
+Prérequis : **Node.js 22.13 ou plus récent** (la base SQLite utilise le module intégré `node:sqlite`).
 
 ```bash
 cd oceades-studio
 npm install
-npm run dev          # http://localhost:3000
+npm run dev            # http://localhost:3000
 ```
 
-Version de production :
+Pour un usage quotidien, utilisez la version optimisée :
 
 ```bash
 npm run build
-npm start            # http://localhost:3000
+npm start              # http://localhost:3000
 ```
 
-Au premier lancement, la base `data/oceades.db` est créée avec les données de démonstration.
-Pour repartir de zéro : `npm run db:reset` puis relancer.
+Au premier lancement, la base `data/oceades.db` est créée avec le tableau « Planning éditorial Océades » (💡 IDÉES, quatre semaines, ✅ PUBLIÉS) et quelques cartes d'exemple marquées « Démo ». Pour les supprimer : **Paramètres → Données**.
+Une base créée avec la première version de l'application est migrée automatiquement : les publications deviennent des cartes, sans rien supprimer.
 
-### Activer l'assistant IA (optionnel)
+### Options (`.env.local`)
 
 ```bash
 cp .env.example .env.local
-# puis renseigner ANTHROPIC_API_KEY=… et redémarrer
 ```
 
-La clé n'est lue que côté serveur (routes `/api/ai/*`) et n'est jamais envoyée au navigateur.
-Sans clé, les boutons IA sont désactivés et un message l'explique : aucun résultat n'est simulé.
-Le modèle par défaut est `claude-opus-5-5` (modifiable via `OCEADES_AI_MODEL`).
+| Variable | Rôle |
+|---|---|
+| `ANTHROPIC_API_KEY` | Active l'assistant IA (clé lue côté serveur uniquement). Sans clé, les fonctions IA sont désactivées et rien n'est simulé. |
+| `OCEADES_PASSWORD` | Demande un mot de passe pour ouvrir l'application (utile si elle est accessible sur le réseau). |
+| `OCEADES_DATA_DIR`, `OCEADES_STORAGE_DIR` | Emplacements de la base et des fichiers médias. |
+
+Pour repartir de zéro : `npm run db:reset` puis relancer.
+
+## Utilisation
+
+**Tableau** : glissez les cartes d'une liste à l'autre ou dans une même liste, et glissez une liste par son en-tête pour la déplacer. L'ordre est enregistré.
+
+- Ajouter une carte : « + Ajouter une carte » en bas d'une liste (Entrée pour enchaîner, Échap pour fermer).
+- Ajouter une liste : « + Ajouter une liste » à droite. Le raccourci « Sem. … » crée la semaine suivante avec le bon nom.
+- Menu « … » d'une liste : ajouter une carte, créer depuis un modèle, trier par date, couleur, dupliquer, archiver.
+- Menu « … » du tableau : renommer, fond, étiquettes, étiquettes compactes, éléments archivés, dupliquer, export CSV, archiver.
+- Changer de tableau : cliquez sur son nom en haut à gauche.
+- Recherche : touche `/`. Filtres : étiquettes (une même famille = OU, familles différentes = ET), statut, échéance, campagne, responsable.
+- Cloche : alertes de production (retards, visuel manquant la veille, montage non terminé, programmé sans validation, campagne qui se termine, activité sous-représentée).
+
+**Fiche d'une carte** (clic sur la carte) : tout s'enregistre automatiquement.
+
+- En haut : étiquettes, statut, date de publication, responsable.
+- Ensuite : description interne, contenu (accroche, texte du post, script, brief créatif, CTA), checklist avec progression, médias et couverture, commentaires et historique des modifications.
+- À droite : objectif, campagne, cible, date de production, date limite de validation.
+- Menu « … » de la fiche : dupliquer, décliner (Reel → Story, Reel → Carrousel, Instagram → Facebook, vidéo → brief Meta Ads), archiver. Les déclinaisons restent liées à l'original.
+
+**Semaines et dates** : si la date d'une carte rangée dans une liste hebdomadaire change de semaine, une notification propose de la déplacer (et de créer la liste au besoin). Si vous déposez une carte datée dans une autre semaine, une notification propose d'ajuster la date. Rien n'est fait sans votre accord.
+
+**Calendrier** : il affiche les mêmes cartes en vue mois, semaine, jour ou liste. Glisser une carte change sa date, et le tableau suit immédiatement. Un clic sur « + » crée une carte à cette date. Le bouton « Idées » liste les cartes sans date, à glisser sur un jour.
+
+**Archives** : les cartes, listes et tableaux sont archivés, pas supprimés. On les restaure ou on les supprime définitivement depuis « Éléments archivés ».
 
 ## Ce qui fonctionne
 
-| Domaine | Fonctionnalités |
+| Étape | Contenu |
 |---|---|
-| **Calendrier** | Vues mois, semaine, jour, liste et Kanban ; création depuis un jour (bouton « + » ou double-clic) ou un créneau horaire ; glisser-déposer entre jours, créneaux et statuts (avec « Annuler ») ; Alt + déposer pour dupliquer ; plusieurs publications par jour (« + N autres ») ; recherche plein texte (`/`) ; filtres par activité, plateforme, statut, format, objectif et campagne ; coloration par activité, plateforme, statut ou campagne ; campagnes et temps forts affichés dans la grille ; navigation clavier (← → T, N pour créer). |
-| **Fiches de publication** | Tous les champs (titre, date/heure, plateforme, activité, format, objectif, statut, description, accroche, CTA, visuels, notes, campagne) ; validation (zod) côté client et serveur ; compteur de caractères par plateforme ; duplication ; déclinaisons vers d'autres plateformes et formats ; checklist (visuel prêt, texte validé, date choisie, CTA présent, droits vérifiés) ; alertes de retard et de répétition. |
-| **Boîte à idées** | Saisie express (titre + Entrée), idées non planifiées à glisser sur le calendrier. |
-| **Production** | Kanban par statut avec glisser-déposer, filtres, progression de la checklist. |
-| **Tableau de bord** | Programmées, en production, à valider, en retard ; répartition par activité et par plateforme ; pipeline des statuts ; prochaines publications ; campagnes en cours et leur avancement ; alertes (retards, contenus à risque sous 72 h, répétitions, équilibre éditorial) ; temps forts à venir ; filtres de période. Aucune métrique de performance n'est inventée. |
-| **Campagnes** | Création et modification (nom, type campagne/événement, objectif, dates, activités, cible, messages clés, couleur) ; vue chronologique ; progression de la production ; liste des contenus ; lien vers le calendrier filtré. |
-| **Médiathèque** | Import par glisser-déposer ou bouton avec progression ; aperçu image, vidéo (lecture avec Range) et PDF ; catégories, tags, recherche, droits d'utilisation, notes ; association aux publications ; téléchargement. Les fichiers sont écrits en flux sur disque (`storage/`), jamais dans la base (limite par défaut 1 Go, `OCEADES_MAX_UPLOAD_MB`). |
-| **Assistant IA** | Formulaire activité, réseau, type, objectif, cible, période, ton, campagne, nombre de propositions ; génère idées, 3 accroches, légendes Instagram et Facebook, script de Reel, carrousel slide par slide, CTA, brief photo/vidéo et recommandation de format ; aperçu, modification, rejet, ajout au calendrier ou à la boîte à idées. Rien n'est publié automatiquement. |
-| **Construire mon planning** | Mois, rythme hebdomadaire, activités à équilibrer, plateformes, jours et heures préférés ; analyse de l'existant (sous-représentation), alternance des formats, prise en compte des campagnes et des temps forts saisonniers, dates proposées ; aperçu du mois ; validation unitaire ou import de la sélection. Les publications existantes ne sont jamais modifiées. Avec une clé API, l'IA rédige l'idée de chaque créneau. |
-| **Intelligence locale** | Détection de répétitions (similarité de vocabulaire sur 3 semaines), équilibre éditorial, suggestions saisonnières (calendrier français des temps forts), déclinaisons de contenus. Ces règles fonctionnent sans IA. |
-| **Données** | Export CSV (compatible Excel), sauvegarde JSON complète, suppression des données de démo. |
-| **Interface** | Mode clair et sombre (suit le système), responsive (menu latéral repliable, pastilles sur mobile), navigation clavier et lecteur d'écran pour le glisser-déposer, `prefers-reduced-motion` respecté. |
+| 1. Trello éditorial | Tableaux multiples (créer, renommer, fond, dupliquer, archiver), listes personnalisables (créer, renommer, couleur, déplacer, dupliquer, archiver, compteur, ajout direct), cartes compactes (couverture, étiquettes, date, statut, plateformes, checklist, commentaires, pièces jointes, responsable), glisser-déposer cartes et listes avec ordre enregistré, fiche détaillée complète, checklist personnalisable, commentaires, historique, archives, sauvegarde automatique. |
+| Étiquettes | Quatre familles (Activité, Plateforme, Format, Production) et des étiquettes libres. Création, renommage, couleur et suppression ; plusieurs étiquettes par carte ; filtres. Le statut de production reste un champ distinct. |
+| 2. Calendrier | Vues mois, semaine, jour et liste, filtres par activité et plateforme, synchronisation avec le tableau, suggestion de semaine, retards signalés. |
+| 3. Production | Campagnes (frise, brief, contenus, avancement, filtrage du tableau), modèles de cartes (Reel fitness, carrousel pédagogique, Meta Ads, soin, témoignage, promotion, shooting), alertes de production, vue de charge sur 14 jours (dates de production, de validation et de publication). |
+| 4. IA | Assistant d'idées (« Propose-moi 5 idées de Reels… »), transformation en cartes après sélection. Depuis une carte : descriptions en plusieurs versions, script de Reel (accroche, plan par plan, voix off, textes à l'écran, CTA, durée), carrousel slide par slide. « Organiser mon mois » : répartition selon vos objectifs d'équilibre, campagnes, temps forts, formats récents et rythme souhaité, avec aperçu et validation avant tout ajout. |
+| Intelligence locale | Détection de répétition, équilibre éditorial par rapport aux objectifs (Paramètres), banque d'idées, déclinaisons liées. Ces règles ne nécessitent pas d'IA. |
+| 5. Avancé | Médiathèque (import par glisser-déposer, aperçu, activité, tags, droits d'utilisation, cartes liées, couverture), import Trello JSON (aperçu, étiquettes rapprochées par nom, doublons, éléments non récupérables signalés, import dans un nouveau tableau), statistiques de planning, export CSV, sauvegarde JSON, mot de passe d'accès optionnel. |
 
-## À développer ensuite
+## Ce qui reste à faire
 
-- **Authentification et multi-utilisateur** : Supabase Auth, puis bascule des dépôts (`src/lib/server/repositories`) vers PostgreSQL. Le schéma, les rôles (lecteur, rédacteur, validateur, admin) et les règles RLS sont prêts dans `supabase/migrations/0001_init.sql`.
-- **Stockage distant des médias** : Supabase Storage (URL signées, upload résumable) derrière l'interface `StorageAdapter` (`src/lib/server/storage.ts`).
-- **Sauvegardes automatiques** et restauration depuis l'export JSON.
-- **Historique des modifications** et commentaires de validation sur une fiche.
-- **Connexions aux plateformes sociales** (Meta, TikTok, LinkedIn) pour importer les statistiques, uniquement via des intégrations autorisées.
-- **Miniatures générées côté serveur** pour les vidéos lourdes (aujourd'hui, l'aperçu utilise la première image de la vidéo).
-- **Tests automatisés dans le dépôt** : les parcours ont été vérifiés avec Playwright pendant le développement, mais aucune suite de tests n'est encore versionnée.
+- **Comptes individuels et rôles** (Supabase Auth). Le schéma PostgreSQL, les rôles et les règles d'accès sont prêts dans `supabase/migrations/0001_init.sql`. Aujourd'hui, l'historique est signé avec le nom saisi dans Paramètres → Profil.
+- **Synchronisation temps réel entre plusieurs postes** : elle viendra avec Supabase. En local, chaque poste recharge les données à l'ouverture.
+- **Statistiques Meta et Instagram** : à connecter via les API officielles, après autorisation. Aucune donnée de performance n'est inventée.
+- **Modèles de cartes modifiables** depuis l'interface (aujourd'hui, ils sont définis dans `src/lib/domain/constants.ts`).
+- **Sauvegardes automatiques planifiées** ; la sauvegarde JSON est manuelle pour l'instant.
 
 ## Architecture
 
 ```
 src/
-  app/                    Pages (App Router) et routes API
-    api/posts, campaigns, media, ai, export, backup, demo
+  app/                  pages et routes API (boards, lists, cards, checklist, comments, labels, members,
+                        settings, campaigns, media, ai, import/trello, export, backup, auth)
   components/
-    ui/                   Composants de base façon shadcn/ui (Radix + Tailwind)
-    layout/               Navigation latérale, chargement
-    calendar/             Vues mois/semaine/jour/liste/Kanban, filtres, glisser-déposer
-    posts/                Fiche de publication, badges
-    dashboard/ campaigns/ media/ ai/
+    board/              tableau : listes, cartes, glisser-déposer, menus, filtres, étiquettes, archives, alertes
+    card/               fiche détaillée : champs auto-enregistrés, étiquettes, checklist, médias, IA, commentaires
+    calendar/           calendrier synchronisé
+    campaigns/ media/ ai/   campagnes, médiathèque, assistant
+    ui/                 composants de base (Radix + Tailwind, façon shadcn/ui)
   lib/
-    domain/               Référentiels (libellés, couleurs), types, schémas zod partagés client/serveur
-    insights/             Logique métier pure : retards, répétitions, équilibre, saisons, planificateur, déclinaisons
-    server/               Base SQLite, dépôts, stockage de fichiers, IA, gestion des erreurs
-    client/               Store React (mises à jour optimistes), client HTTP
-supabase/migrations/      Schéma PostgreSQL cible
+    domain/             référentiels, types, schémas zod partagés client/serveur
+    insights/           logique métier pure : alertes, équilibre, répétitions, saisons, planificateur
+    server/             SQLite, migrations, dépôts, stockage des fichiers, IA, import Trello
+    client/             store (mises à jour optimistes), synchronisation semaines/dates
+supabase/migrations/    schéma PostgreSQL cible
 ```
 
-**Choix techniques**
-
-- **Next.js 15 + TypeScript + Tailwind CSS**, composants façon **shadcn/ui** écrits dans le projet (Radix UI), icônes **Lucide**.
-- **Calendrier sur mesure** (date-fns + dnd-kit) plutôt qu'une bibliothèque comme FullCalendar : il fallait une Kanban, une boîte à idées et des cibles de dépôt communes à toutes les vues, avec une apparence cohérente avec le reste de l'interface. dnd-kit gère souris, tactile et clavier.
-- **SQLite intégré à Node** pour une persistance réelle dès la version locale, sans service à installer. Les accès passent par des dépôts asynchrones : passer à PostgreSQL ne changera pas l'interface ni les routes API.
-- **Dates locales sans fuseau** (`2026-11-03T18:30`) : une publication prévue à 18h30 reste à 18h30 quel que soit le poste.
-- **Validation partagée** : les mêmes schémas zod valident les formulaires et les routes API.
-- **IA côté serveur uniquement**, sorties structurées validées par schéma, gestion explicite des erreurs (clé invalide, quota, refus, réponse incomplète).
-- **Graphiques** : Recharts, avec des palettes vérifiées pour le daltonisme et des libellés directs (la couleur n'est jamais le seul indice).
+**Choix techniques** : Next.js 15, TypeScript, Tailwind CSS, Radix UI, dnd-kit (glisser-déposer à la souris, au toucher et au clavier) et Lucide. Côté données, SQLite intégré à Node, derrière des dépôts asynchrones pour faciliter le passage à PostgreSQL. L'ordre des cartes et des listes utilise des positions fractionnaires : un déplacement ne réécrit qu'une ligne. Les dates sont stockées en heure locale des clubs, sans fuseau. Les fichiers sont écrits sur disque en flux, jamais dans la base. L'IA passe uniquement par le serveur, avec des sorties validées par schéma.

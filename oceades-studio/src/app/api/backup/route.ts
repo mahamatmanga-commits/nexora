@@ -1,23 +1,19 @@
-import { listCampaigns } from "@/lib/server/repositories/campaigns";
-import { listMedia } from "@/lib/server/repositories/media";
-import { listPosts } from "@/lib/server/repositories/posts";
-import { errorResponse } from "@/lib/server/errors";
+import { getDb } from "@/lib/server/db";
+import { route } from "@/lib/server/errors";
 
 export const dynamic = "force-dynamic";
 
-/** Sauvegarde JSON complète des données (hors fichiers médias, qui restent dans le dossier storage/). */
-export async function GET() {
-  try {
-    const [posts, campaigns, media] = await Promise.all([listPosts(), listCampaigns(), listMedia()]);
-    const body = JSON.stringify({ app: "oceades-studio", version: 1, exportedAt: new Date().toISOString(), posts, campaigns, media }, null, 2);
-    const stamp = new Date().toISOString().slice(0, 10);
-    return new Response(body, {
-      headers: {
-        "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition": `attachment; filename="oceades-sauvegarde-${stamp}.json"`,
-      },
-    });
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+const TABLES = ["boards", "lists", "labels", "members", "campaigns", "cards", "card_labels", "card_attachments", "checklist_items", "comments", "card_events", "media", "settings"];
+
+/** Sauvegarde JSON complète de la base (hors fichiers médias, conservés dans storage/). */
+export const GET = route(async () => {
+  const db = getDb();
+  const data = Object.fromEntries(TABLES.map((t) => [t, db.prepare(`SELECT * FROM ${t}`).all()]));
+  const body = JSON.stringify({ app: "oceades-studio", version: 2, exportedAt: new Date().toISOString(), data }, null, 2);
+  return new Response(body, {
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Content-Disposition": `attachment; filename="oceades-sauvegarde-${new Date().toISOString().slice(0, 10)}.json"`,
+    },
+  });
+});

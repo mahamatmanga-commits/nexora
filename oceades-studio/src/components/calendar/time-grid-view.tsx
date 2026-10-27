@@ -2,11 +2,11 @@
 
 import * as React from "react";
 import { isToday } from "date-fns";
-import type { Campaign, Post } from "@/lib/domain/types";
+import type { Campaign, Card } from "@/lib/domain/types";
 import { dayKey, fmt } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { momentsOn } from "@/lib/insights/seasonal";
-import { DropZone, PostChip, type ChipContext } from "./post-chip";
+import { DropZone, CalChip, type ChipContext } from "./cal-chip";
 
 const START_HOUR = 6;
 const END_HOUR = 23;
@@ -19,14 +19,14 @@ function minutesOf(scheduledAt: string) {
 /** Vue horaire (semaine ou jour). Chaque créneau d'une heure est une zone de dépôt. */
 export function TimeGridView({
   days,
-  posts,
+  cards: posts,
   campaigns,
   ctx,
   onCreate,
   onSelectDay,
 }: {
   days: Date[];
-  posts: Post[];
+  cards: Card[];
   campaigns: Campaign[];
   ctx: ChipContext;
   onCreate: (scheduledAt: string) => void;
@@ -45,7 +45,7 @@ export function TimeGridView({
   }, []);
 
   const byDay = React.useMemo(() => {
-    const map = new Map<string, Post[]>();
+    const map = new Map<string, Card[]>();
     for (const p of posts) {
       if (!p.scheduledAt) continue;
       const k = p.scheduledAt.slice(0, 10);
@@ -103,7 +103,7 @@ export function TimeGridView({
             const key = dayKey(d);
             const list = (byDay.get(key) ?? []).slice().sort((a, b) => a.scheduledAt!.localeCompare(b.scheduledAt!));
             // Regroupe par heure pour placer côte à côte les publications simultanées.
-            const groups = new Map<number, Post[]>();
+            const groups = new Map<number, Card[]>();
             for (const p of list) {
               const h = Math.min(END_HOUR - 1, Math.max(START_HOUR, Math.floor(minutesOf(p.scheduledAt!) / 60)));
               groups.set(h, [...(groups.get(h) ?? []), p]);
@@ -140,7 +140,7 @@ export function TimeGridView({
                         style={{ top, left: `${idx * width}%`, width: `${width}%`, height: ROW - 4 }}
                         data-hour={h}
                       >
-                        <PostChip post={p} ctx={ctx} variant="block" className="h-full shadow-sm" />
+                        <CalChip card={p} ctx={ctx} variant="block" className="h-full shadow-sm" />
                       </div>
                     );
                   }),

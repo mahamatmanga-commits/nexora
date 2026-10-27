@@ -10,6 +10,7 @@ interface CampaignRow {
   name: string;
   kind: string;
   objective: string;
+  brief: string;
   start_date: string;
   end_date: string;
   activities: string;
@@ -27,6 +28,7 @@ function toCampaign(r: CampaignRow): Campaign {
     name: r.name,
     kind: r.kind as Campaign["kind"],
     objective: r.objective,
+    brief: r.brief ?? "",
     startDate: r.start_date,
     endDate: r.end_date,
     activities: JSON.parse(r.activities || "[]"),
@@ -54,13 +56,14 @@ export function insertCampaign(db: DatabaseSync, input: CampaignInput, opts: { i
   const id = opts.id ?? newId("cmp");
   const now = nowIso();
   db.prepare(
-    `INSERT INTO campaigns (id, name, kind, objective, start_date, end_date, activities, target_audience, key_messages,
-      color, is_demo, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO campaigns (id, name, kind, objective, brief, start_date, end_date, activities, target_audience, key_messages,
+      color, is_demo, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.name,
     input.kind,
     input.objective,
+    input.brief,
     input.startDate,
     input.endDate,
     JSON.stringify(input.activities),
@@ -83,6 +86,7 @@ const COLUMN_MAP: Record<string, string> = {
   name: "name",
   kind: "kind",
   objective: "objective",
+  brief: "brief",
   startDate: "start_date",
   endDate: "end_date",
   targetAudience: "target_audience",
@@ -114,7 +118,7 @@ export async function updateCampaign(id: string, patch: CampaignPatch): Promise<
   return getCampaign(id);
 }
 
-/** Supprime la campagne ; les publications associées sont conservées et simplement détachées. */
+/** Supprime la campagne ; les cartes associées sont conservées et simplement détachées. */
 export async function deleteCampaign(id: string): Promise<void> {
   const result = getDb().prepare("DELETE FROM campaigns WHERE id = ?").run(id);
   if (result.changes === 0) throw new NotFoundError("Campagne introuvable.");

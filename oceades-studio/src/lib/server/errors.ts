@@ -32,3 +32,27 @@ export async function readJson(request: Request): Promise<unknown> {
     throw new ValidationError("Corps de requête JSON invalide.");
   }
 }
+
+/** Auteur d'une action (nom saisi dans les Paramètres), transmis par l'en-tête X-Oceades-Author. */
+export function authorOf(request: Request): string {
+  const raw = request.headers.get("x-oceades-author");
+  try {
+    const name = raw ? decodeURIComponent(raw).trim().slice(0, 60) : "";
+    return name || "Équipe";
+  } catch {
+    return "Équipe";
+  }
+}
+
+type Handler<C> = (request: Request, ctx: C) => Promise<Response>;
+
+/** Enveloppe une route : toute erreur est convertie en réponse JSON homogène. */
+export function route<C = unknown>(handler: Handler<C>): Handler<C> {
+  return async (request, ctx) => {
+    try {
+      return await handler(request, ctx);
+    } catch (error) {
+      return errorResponse(error);
+    }
+  };
+}

@@ -2,345 +2,470 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Check, Clapperboard, GalleryHorizontalEnd, Loader2, Sparkles, Trash2, Wand2 } from "lucide-react";
-import {
-  ACTIVITIES,
-  ACTIVITY_LABELS,
-  FORMATS,
-  FORMAT_LABELS,
-  OBJECTIVES,
-  OBJECTIVE_LABELS,
-  PLATFORMS,
-  PLATFORM_LABELS,
-  type Activity,
-  type Format,
-  type Objective,
-  type Platform,
-} from "@/lib/domain/constants";
+import { addMonths, format, parseISO, startOfMonth } from "date-fns";
+import { Check, ChevronDown, Loader2, Sparkles, Wand2, X } from "lucide-react";
+import { PLATFORM_KEYS, type FormatKey, type Objective, type PlatformKey } from "@/lib/domain/constants";
+import type { CardInput } from "@/lib/domain/schemas";
+import type { BoardList } from "@/lib/domain/types";
 import { api } from "@/lib/client/api";
-import { useData } from "@/lib/client/store";
-import { usePostEditor } from "@/components/posts/post-editor-provider";
-import { ActivityBadge, FormatLabel, PlatformLabel } from "@/components/posts/post-badges";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Input, Label, NativeSelect, Textarea } from "@/components/ui/input";
-import { EmptyState, PageHeader, Segmented } from "@/components/ui/misc";
-import { cn } from "@/lib/utils";
+import { useData, useIndexes } from "@/lib/client/store";
+import { between } from "@/lib/cards";
+import { capitalize, fmt, mondayOf, parseLocal, weekListName } from "@/lib/dates";
+import { buildPlan, type PlanSlot } from "@/lib/insights/planner";
+import { Segmented } from "@/components/ui/misc";
+import { LabelPill } from "@/components/board/bits";
 import { AiDisabledNotice } from "./ai-disabled";
+import { cn } from "@/lib/utils";
 
-/** Format renvoyé par /api/ai/ideas (voir lib/server/ai.ts). */
-interface AiIdea {
+interface Idea {
   title: string;
   angle: string;
-  activity: Activity;
-  platform: Platform;
-  format: Format;
+  activity: string;
+  platforms: PlatformKey[];
+  format: FormatKey;
   objective: Objective;
   hooks: string[];
-  captionInstagram: string;
-  captionFacebook: string;
-  cta: string;
-  ctaAlternatives: string[];
-  reelScript: { timing: string; visual: string; text: string }[];
-  carouselSlides: { title: string; text: string }[];
-  shootingBrief: string;
-  formatAdvice: string;
-  suggestedDay: string;
-}
-
-interface Proposal extends AiIdea {
-  key: string;
-  chosenHook: number;
   caption: string;
-  chosenCta: string;
-  date: string;
-  added?: string;
+  cta: string;
+  script: string;
+  brief: string;
 }
 
-const TONES = ["chaleureux et concret", "énergique et motivant", "pédagogique", "complice et léger", "premium et apaisant"];
-
-function productionNotes(p: Proposal): string {
-  const parts = [`Angle : ${p.angle}`];
-  if (p.reelScript.length) parts.push("Script :\n" + p.reelScript.map((s) => `- [${s.timing}] ${s.visual} — « ${s.text} »`).join("\n"));
-  if (p.carouselSlides.length) parts.push("Slides :\n" + p.carouselSlides.map((s, i) => `${i + 1}. ${s.title} — ${s.text}`).join("\n"));
-  if (p.shootingBrief) parts.push(`Brief photo/vidéo : ${p.shootingBrief}`);
-  if (p.formatAdvice) parts.push(`Format : ${p.formatAdvice}`);
-  const otherHooks = p.hooks.filter((_, i) => i !== p.chosenHook);
-  if (otherHooks.length) parts.push("Autres accroches :\n" + otherHooks.map((h) => `- ${h}`).join("\n"));
-  parts.push("Proposition générée par l'assistant IA — à relire avant validation.");
-  return parts.join("\n\n");
+/** Ids d'étiquettes à partir des clés métier (fitness, instagram, reel…). */
+function useLabelIds() {
+  const { labels } = useData();
+  return React.useCallback((keys: (string | null | undefined)[]) => keys.map((k) => labels.find((l) => l.key === k)?.id).filter(Boolean) as string[], [labels]);
 }
 
 export function AssistantPage() {
-  const { ai, posts, campaigns, createPost } = useData();
-  const { openPost } = usePostEditor();
-  const [form, setForm] = React.useState({
-    activity: "fitness" as Activity,
-    platform: "instagram" as Platform,
-    format: "auto" as Format | "auto",
-    objective: "engagement" as Objective,
-    audience: "",
-    period: "",
-    tone: TONES[0],
-    count: 3,
-    brief: "",
-    campaignId: "",
-  });
+  const [tab, setTab] = React.useState<"idees" | "mois">("idees");
+  const { ai } = useData();
+  return (
+    <div className="mx-auto flex max-w-4xl flex-col gap-5 p-4 lg:p-8">
+      <div className="flex flex-wrap items-center gap-3">
+        <h1 className="text-xl font-semibold tracking-tight">Assistant</h1>
+        <Segmented
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: "idees", label: "Idées de contenus" },
+            { value: "mois", label: "Organiser mon mois" },
+          ]}
+          className="ml-auto"
+        />
+      </div>
+      {!ai.enabled && tab === "idees" && <AiDisabledNotice />}
+      {tab === "idees" ? <IdeasTab /> : <MonthTab />}
+    </div>
+  );
+}
+
+/* ---------------- Idées ---------------- */
+
+function IdeasTab() {
+  const { ai, cards, lists, createCards } = useData();
+  const { labelById } = useIndexes();
+  const labelIds = useLabelIds();
+  const [prompt, setPrompt] = React.useState("");
+  const [count, setCount] = React.useState(5);
   const [loading, setLoading] = React.useState(false);
-  const [error, setError] = React.useState<string | null>(null);
-  const [proposals, setProposals] = React.useState<Proposal[]>([]);
+  const [ideas, setIdeas] = React.useState<(Idea & { key: string; selected: boolean; open: boolean; added?: boolean })[]>([]);
+  const activeLists = lists.filter((l) => !l.archivedAt);
+  const [listId, setListId] = React.useState<string>("");
+  const target = activeLists.find((l) => l.id === listId) ?? activeLists.find((l) => l.kind === "ideas") ?? activeLists[0];
 
   async function generate(e: React.FormEvent) {
     e.preventDefault();
+    if (!prompt.trim()) return;
     setLoading(true);
-    setError(null);
-    const campaign = campaigns.find((c) => c.id === form.campaignId);
     try {
-      const { ideas } = await api<{ ideas: AiIdea[] }>("/api/ai/ideas", {
+      const { ideas: res } = await api<{ ideas: Idea[] }>("/api/ai/ideas", {
         method: "POST",
-        json: {
-          activity: form.activity,
-          platform: form.platform,
-          format: form.format,
-          objective: form.objective,
-          audience: form.audience,
-          period: form.period,
-          tone: form.tone,
-          count: form.count,
-          brief: form.brief,
-          campaign: campaign ? `${campaign.name} (${campaign.startDate} → ${campaign.endDate})\nObjectif : ${campaign.objective}\nCible : ${campaign.targetAudience}\nMessages clés : ${campaign.keyMessages}` : "",
-          recentTitles: posts
-            .filter((p) => p.activity === form.activity || p.activity === "global")
-            .slice(-60)
-            .map((p) => p.title),
-        },
+        json: { prompt, count, recentTitles: cards.filter((c) => !c.archivedAt).slice(-100).map((c) => c.title) },
       });
-      setProposals((prev) => [
-        ...ideas.map((idea, i) => ({
-          ...idea,
-          key: `${Date.now()}-${i}`,
-          chosenHook: 0,
-          caption: idea.platform === "facebook" ? idea.captionFacebook : idea.captionInstagram,
-          chosenCta: idea.cta,
-          date: "",
-        })),
-        ...prev,
-      ]);
+      setIdeas((prev) => [...res.map((i, n) => ({ ...i, key: `${Date.now()}-${n}`, selected: true, open: false })), ...prev.filter((p) => !p.added)]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inconnue");
+      toast.error(err instanceof Error ? err.message : "Erreur de l'assistant");
     } finally {
       setLoading(false);
     }
   }
 
-  const update = (key: string, patch: Partial<Proposal>) => setProposals((list) => list.map((p) => (p.key === key ? { ...p, ...patch } : p)));
-
-  async function add(p: Proposal) {
-    const created = await createPost({
-      title: p.title,
-      scheduledAt: p.date ? `${p.date}T12:00` : null,
-      platform: p.platform,
-      activity: p.activity,
-      format: p.format,
-      objective: p.objective,
+  async function add() {
+    const chosen = ideas.filter((i) => i.selected && !i.added);
+    if (!chosen.length || !target) return;
+    const inputs: CardInput[] = chosen.map((i) => ({
+      listId: target.id,
+      title: i.title,
+      description: `${i.angle}\n\nAutres accroches :\n${i.hooks.slice(1).map((h) => `- ${h}`).join("\n")}\n\nProposition de l'assistant IA — à relire.`,
+      hook: i.hooks[0] ?? "",
+      caption: i.caption,
+      cta: i.cta,
+      script: i.script,
+      brief: i.brief,
+      objective: i.objective,
       status: "idee",
-      description: p.caption,
-      hook: p.hooks[p.chosenHook] ?? "",
-      cta: p.chosenCta,
-      notes: productionNotes(p),
-      campaignId: form.campaignId || null,
-      mediaIds: [],
-      checklist: { visualReady: false, textValidated: false, rightsChecked: false },
-    });
+      labelIds: labelIds([i.activity, ...i.platforms, i.format]),
+    }));
+    const created = await createCards(inputs);
     if (created) {
-      update(p.key, { added: created.id });
-      toast.success(p.date ? "Ajoutée au calendrier (statut Idée)" : "Ajoutée à la boîte à idées", { action: { label: "Ouvrir", onClick: () => openPost(created.id) } });
+      const keys = new Set(chosen.map((c) => c.key));
+      setIdeas((prev) => prev.map((p) => (keys.has(p.key) ? { ...p, added: true, selected: false } : p)));
+      toast.success(`${created.length} carte(s) ajoutée(s) à « ${target.name} »`);
     }
   }
 
+  const selected = ideas.filter((i) => i.selected && !i.added).length;
+
   return (
-    <div className="flex flex-col gap-6 p-4 lg:p-8">
-      <PageHeader title="Assistant IA" description="Générez des idées, accroches, légendes, scripts et briefs adaptés aux Océades. Rien n'est publié sans votre validation." />
-      {!ai.enabled && <AiDisabledNotice />}
-
-      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-        <Card className="h-fit p-5">
-          <form onSubmit={generate} className="flex flex-col gap-3.5">
-            <div className="grid grid-cols-2 gap-3">
-              <Sel label="Activité" value={form.activity} onChange={(v) => setForm({ ...form, activity: v as Activity })} options={ACTIVITIES.map((a) => [a, ACTIVITY_LABELS[a]])} />
-              <Sel label="Réseau social" value={form.platform} onChange={(v) => setForm({ ...form, platform: v as Platform })} options={PLATFORMS.map((p) => [p, PLATFORM_LABELS[p]])} />
-              <Sel label="Type de publication" value={form.format} onChange={(v) => setForm({ ...form, format: v as Format | "auto" })} options={[["auto", "Recommandé par l'IA"], ...FORMATS.map((f) => [f, FORMAT_LABELS[f]] as [string, string])]} />
-              <Sel label="Objectif" value={form.objective} onChange={(v) => setForm({ ...form, objective: v as Objective })} options={OBJECTIVES.map((o) => [o, OBJECTIVE_LABELS[o]])} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ai-target">Cible</Label>
-              <Input id="ai-target" value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value })} placeholder="Ex. seniors actifs, jeunes parents, débutants…" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor="ai-period">Période</Label>
-                <Input id="ai-period" value={form.period} onChange={(e) => setForm({ ...form, period: e.target.value })} placeholder="Ex. mi-novembre" />
-              </div>
-              <Sel label="Ton" value={form.tone} onChange={(v) => setForm({ ...form, tone: v })} options={TONES.map((t) => [t, t])} />
-            </div>
-            <Sel label="Campagne (optionnel)" value={form.campaignId} onChange={(v) => setForm({ ...form, campaignId: v })} options={[["", "Aucune"], ...campaigns.map((c) => [c.id, c.name] as [string, string])]} />
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="ai-brief">Consignes complémentaires</Label>
-              <Textarea id="ai-brief" rows={3} value={form.brief} onChange={(e) => setForm({ ...form, brief: e.target.value })} placeholder="Ex. mettre en avant le nouveau cours de Pilates du jeudi, tourner avec l'équipe du matin…" />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Nombre de propositions</Label>
-              <Segmented value={String(form.count)} onChange={(v) => setForm({ ...form, count: Number(v) })} options={["1", "2", "3", "4", "5"].map((n) => ({ value: n, label: n }))} />
-            </div>
-            <Button type="submit" disabled={!ai.enabled || loading} className="mt-1">
-              {loading ? <Loader2 className="animate-spin" /> : <Sparkles />}
-              {loading ? "Génération en cours…" : "Générer des idées avec l'IA"}
-            </Button>
-            {error && <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">{error}</p>}
-            <p className="text-[11px] text-muted-foreground">
-              Les publications déjà prévues pour cette activité sont transmises pour éviter les doublons. Les propositions restent des brouillons : vous les relisez, les modifiez puis
-              choisissez de les ajouter.
-            </p>
-          </form>
-        </Card>
-
-        <div className="flex min-w-0 flex-col gap-4">
-          {loading && (
-            <Card className="flex items-center gap-3 p-5 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> L'assistant rédige {form.count} proposition(s)… cela peut prendre jusqu'à une minute.
-            </Card>
-          )}
-          {proposals.map((p) => (
-            <ProposalCard key={p.key} p={p} onChange={(patch) => update(p.key, patch)} onAdd={() => add(p)} onReject={() => setProposals((l) => l.filter((x) => x.key !== p.key))} onOpen={() => p.added && openPost(p.added)} />
-          ))}
-          {!proposals.length && !loading && (
-            <EmptyState icon={<Wand2 />} title="Aucune proposition pour l'instant">
-              Choisissez une activité, un réseau et un objectif, puis lancez la génération. Chaque idée arrive avec plusieurs accroches, des légendes, un script ou des slides, un CTA et un brief de tournage.
-            </EmptyState>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Sel({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: [string, string][] }) {
-  const id = React.useId();
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label htmlFor={id}>{label}</Label>
-      <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-        {options.map(([v, l]) => (
-          <option key={v} value={v}>{l}</option>
-        ))}
-      </NativeSelect>
-    </div>
-  );
-}
-
-function ProposalCard({ p, onChange, onAdd, onReject, onOpen }: { p: Proposal; onChange: (patch: Partial<Proposal>) => void; onAdd: () => void; onReject: () => void; onOpen: () => void }) {
-  const [tab, setTab] = React.useState<"texte" | "production">("texte");
-  return (
-    <Card className={cn("overflow-hidden animate-fade-in", p.added && "opacity-80")}>
-      <div className="flex flex-col gap-3 p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <ActivityBadge activity={p.activity} />
-          <PlatformLabel platform={p.platform} />
-          <FormatLabel format={p.format} />
-          <span className="text-xs text-muted-foreground">· {OBJECTIVE_LABELS[p.objective]}</span>
-          {p.suggestedDay && <span className="text-xs text-muted-foreground">· conseillé : {p.suggestedDay}</span>}
-        </div>
-        <Input value={p.title} onChange={(e) => onChange({ title: e.target.value })} className="border-transparent px-0 text-base font-semibold shadow-none focus-visible:border-input focus-visible:px-3" aria-label="Titre" />
-        <p className="-mt-2 text-sm text-muted-foreground">{p.angle}</p>
-        <Segmented value={tab} onChange={setTab} options={[{ value: "texte", label: "Textes" }, { value: "production", label: "Production" }]} className="self-start" />
-        {tab === "texte" ? (
-          <div className="flex flex-col gap-3">
-            <div className="flex flex-col gap-1.5">
-              <Label>Accroches — choisissez-en une</Label>
-              {p.hooks.map((h, i) => (
-                <button key={i} type="button" onClick={() => onChange({ chosenHook: i })} className={cn("flex items-start gap-2 rounded-md border px-3 py-2 text-left text-sm transition", p.chosenHook === i ? "border-primary bg-primary/5" : "hover:bg-accent/50")}>
-                  <span className={cn("mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border", p.chosenHook === i && "border-primary bg-primary text-primary-foreground")}>{p.chosenHook === i && <Check className="h-3 w-3" />}</span>
-                  {h}
-                </button>
+    <div className="flex flex-col gap-4">
+      <form onSubmit={generate} className="flex flex-col gap-2 rounded-xl border bg-card p-3">
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && generate(e)}
+          rows={2}
+          placeholder="Propose-moi 5 idées de Reels sur la musculation pour Les Océades."
+          aria-label="Demande à l'assistant"
+          className="w-full resize-none bg-transparent px-1 text-[14px] outline-none placeholder:text-muted-foreground"
+        />
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
+            Nombre
+            <select value={count} onChange={(e) => setCount(Number(e.target.value))} className="h-7 rounded-md bg-muted px-1.5 text-[12px]">
+              {[1, 2, 3, 4, 5, 6, 8].map((n) => (
+                <option key={n}>{n}</option>
               ))}
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between">
-                <Label>Légende</Label>
-                <div className="flex gap-1 text-[11px]">
-                  <button type="button" className="rounded px-1.5 py-0.5 hover:bg-accent" onClick={() => onChange({ caption: p.captionInstagram })}>Version Instagram</button>
-                  <button type="button" className="rounded px-1.5 py-0.5 hover:bg-accent" onClick={() => onChange({ caption: p.captionFacebook })}>Version Facebook</button>
-                </div>
-              </div>
-              <Textarea rows={6} value={p.caption} onChange={(e) => onChange({ caption: e.target.value })} />
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label>Appel à l'action</Label>
-              <div className="flex flex-wrap gap-1.5">
-                {[p.cta, ...p.ctaAlternatives].map((c) => (
-                  <button key={c} type="button" onClick={() => onChange({ chosenCta: c })} className={cn("rounded-md border px-2.5 py-1 text-xs transition", p.chosenCta === c ? "border-primary bg-primary/5 font-medium" : "hover:bg-accent/50")}>
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3 text-sm">
-            {p.reelScript.length > 0 && (
-              <div>
-                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><Clapperboard className="h-3.5 w-3.5" /> Script plan par plan</p>
-                <ol className="flex flex-col divide-y rounded-md border">
-                  {p.reelScript.map((s, i) => (
-                    <li key={i} className="grid grid-cols-[64px_1fr] gap-2 px-3 py-2 text-xs">
-                      <span className="tabular text-muted-foreground">{s.timing}</span>
-                      <span><span className="font-medium">{s.visual}</span><br /><span className="text-muted-foreground">« {s.text} »</span></span>
-                    </li>
-                  ))}
-                </ol>
-              </div>
-            )}
-            {p.carouselSlides.length > 0 && (
-              <div>
-                <p className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-muted-foreground"><GalleryHorizontalEnd className="h-3.5 w-3.5" /> Carrousel slide par slide</p>
-                <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-thin">
-                  {p.carouselSlides.map((s, i) => (
-                    <div key={i} className="flex aspect-[4/5] w-36 shrink-0 flex-col gap-1 rounded-lg border bg-muted/40 p-2.5 text-xs">
-                      <span className="text-[10px] text-muted-foreground">{i + 1}/{p.carouselSlides.length}</span>
-                      <span className="font-semibold leading-snug">{s.title}</span>
-                      <span className="text-muted-foreground">{s.text}</span>
+            </select>
+          </label>
+          <button type="submit" disabled={!ai.enabled || loading || !prompt.trim()} className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground disabled:opacity-50">
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Générer
+          </button>
+        </div>
+      </form>
+
+      {ideas.length > 0 && (
+        <>
+          <div className="flex flex-col gap-2">
+            {ideas.map((i) => {
+              const labels = labelIds([i.activity, i.format]).map((id) => labelById.get(id)!).filter(Boolean);
+              return (
+                <div key={i.key} className={cn("rounded-xl border bg-card transition", i.added && "opacity-60")}>
+                  <div className="flex items-start gap-3 p-3">
+                    <button
+                      type="button"
+                      disabled={i.added}
+                      onClick={() => setIdeas((p) => p.map((x) => (x.key === i.key ? { ...x, selected: !x.selected } : x)))}
+                      className={cn("mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border", (i.selected || i.added) && "border-primary bg-primary text-primary-foreground")}
+                      aria-label="Sélectionner"
+                      aria-pressed={i.selected}
+                    >
+                      {(i.selected || i.added) && <Check className="h-3 w-3" />}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1 flex flex-wrap gap-1">
+                        {labels.map((l) => (
+                          <LabelPill key={l.id} label={l} />
+                        ))}
+                      </div>
+                      <input
+                        value={i.title}
+                        disabled={i.added}
+                        onChange={(e) => setIdeas((p) => p.map((x) => (x.key === i.key ? { ...x, title: e.target.value } : x)))}
+                        className="w-full bg-transparent text-[14px] font-medium outline-none"
+                        aria-label="Titre"
+                      />
+                      <p className="text-[12.5px] text-muted-foreground">{i.angle}</p>
+                      {i.open && (
+                        <div className="mt-3 flex flex-col gap-3 text-[13px]">
+                          <Block title="Accroches">
+                            <ul className="list-inside list-disc">{i.hooks.map((h, n) => <li key={n}>{h}</li>)}</ul>
+                          </Block>
+                          <Block title="Texte du post">{i.caption}</Block>
+                          {i.script && <Block title="Script / déroulé">{i.script}</Block>}
+                          <Block title="Brief créatif">{i.brief}</Block>
+                          <Block title="CTA">{i.cta}</Block>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                    <button type="button" onClick={() => setIdeas((p) => p.map((x) => (x.key === i.key ? { ...x, open: !x.open } : x)))} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-accent" aria-label="Détails">
+                      <ChevronDown className={cn("h-4 w-4 transition-transform", i.open && "rotate-180")} />
+                    </button>
+                    {!i.added && (
+                      <button type="button" onClick={() => setIdeas((p) => p.filter((x) => x.key !== i.key))} className="grid h-7 w-7 place-items-center rounded-md text-muted-foreground hover:bg-accent" aria-label="Rejeter">
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
-            <div>
-              <p className="mb-1 text-xs font-medium text-muted-foreground">Brief photographe / vidéaste</p>
-              <p className="whitespace-pre-line rounded-md bg-muted/50 px-3 py-2 text-xs">{p.shootingBrief}</p>
-            </div>
-            <div>
-              <p className="mb-1 text-xs font-medium text-muted-foreground">Recommandation de format</p>
-              <p className="text-xs">{p.formatAdvice}</p>
-            </div>
+              );
+            })}
           </div>
+          <ImportBar count={selected} lists={activeLists} listId={target?.id ?? ""} onListChange={setListId} onImport={add} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function Block({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="mb-0.5 text-[11px] font-medium text-muted-foreground">{title}</p>
+      <div className="whitespace-pre-line">{children}</div>
+    </div>
+  );
+}
+
+function ImportBar({ count, lists, listId, onListChange, onImport, label = "Ajouter" }: { count: number; lists?: BoardList[]; listId?: string; onListChange?: (id: string) => void; onImport: () => void; label?: string }) {
+  return (
+    <div className="sticky bottom-3 flex items-center gap-2 rounded-xl border bg-popover/95 p-2 pl-3 shadow-lg backdrop-blur">
+      <span className="text-[13px] text-muted-foreground">{count} sélectionnée(s)</span>
+      {lists && onListChange && (
+        <select value={listId} onChange={(e) => onListChange(e.target.value)} aria-label="Liste de destination" className="ml-auto h-8 max-w-[45%] rounded-md bg-muted px-2 text-[13px]">
+          {lists.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.name}
+            </option>
+          ))}
+        </select>
+      )}
+      <button type="button" onClick={onImport} disabled={!count} className={cn("h-8 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground disabled:opacity-50", !lists && "ml-auto")}>
+        {label}
+      </button>
+    </div>
+  );
+}
+
+/* ---------------- Organiser mon mois ---------------- */
+
+const DAYS: [number, string][] = [
+  [1, "L"],
+  [2, "M"],
+  [3, "M"],
+  [4, "J"],
+  [5, "V"],
+  [6, "S"],
+  [7, "D"],
+];
+
+function MonthTab() {
+  const { ai, cards, lists, campaigns, settings, createCards, createList } = useData();
+  const { labelById } = useIndexes();
+  const labelIds = useLabelIds();
+  const [month, setMonth] = React.useState(() => format(addMonths(new Date(), 1), "yyyy-MM"));
+  const [perWeek, setPerWeek] = React.useState(3);
+  const [platforms, setPlatforms] = React.useState<PlatformKey[]>(["instagram", "facebook"]);
+  const [days, setDays] = React.useState([1, 3, 5]);
+  const [times, setTimes] = React.useState("12:15, 18:30");
+  const [instructions, setInstructions] = React.useState("");
+  const [slots, setSlots] = React.useState<(PlanSlot & { selected: boolean; added?: boolean; hook?: string; caption?: string; cta?: string; brief?: string })[] | null>(null);
+  const [summary, setSummary] = React.useState<string>("");
+  const [writing, setWriting] = React.useState(false);
+  const months = Array.from({ length: 6 }, (_, i) => format(addMonths(startOfMonth(new Date()), i), "yyyy-MM"));
+
+  function propose() {
+    const t = times
+      .split(/[,;\s]+/)
+      .filter((x) => /^\d{1,2}:\d{2}$/.test(x))
+      .map((x) => x.padStart(5, "0"));
+    const activities = Object.keys(settings?.balanceTargets ?? {}).filter((k) => (settings?.balanceTargets[k] ?? 0) > 0);
+    const res = buildPlan({ month, postsPerWeek: perWeek, activities, platforms, preferredDays: days, preferredTimes: t, countExisting: true }, cards, labelById, campaigns, settings?.balanceTargets ?? {});
+    setSlots(res.slots.map((s) => ({ ...s, selected: true })));
+    const parts = [`${res.analysis.existing} contenu(s) déjà prévu(s)`, ...res.analysis.campaigns.map((c) => `campagne ${c}`), ...res.analysis.moments.map((m) => m)];
+    setSummary(parts.join(" · "));
+  }
+
+  async function write() {
+    if (!slots) return;
+    setWriting(true);
+    try {
+      const target = slots.filter((s) => s.selected && !s.added);
+      const { ideas } = await api<{ ideas: { key: string; title: string; hook: string; caption: string; cta: string; brief: string }[] }>("/api/ai/plan", {
+        method: "POST",
+        json: {
+          slots: target.map((s) => ({ key: s.key, scheduledAt: s.scheduledAt, activity: s.activity, platform: s.platform, format: s.format, objective: s.objective, campaign: campaigns.find((c) => c.id === s.campaignId)?.name ?? "", themeHint: s.hint })),
+          instructions,
+          recentTitles: cards.slice(-120).map((c) => c.title),
+        },
+      });
+      const byKey = new Map(ideas.map((i) => [i.key, i]));
+      setSlots((prev) => prev!.map((s) => (byKey.has(s.key) ? { ...s, ...byKey.get(s.key)! } : s)));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erreur de l'assistant");
+    } finally {
+      setWriting(false);
+    }
+  }
+
+  /** Ajoute les cartes retenues dans leur liste hebdomadaire (créée si besoin). Rien d'existant n'est modifié. */
+  async function importSelected() {
+    if (!slots) return;
+    const chosen = slots.filter((s) => s.selected && !s.added);
+    if (!chosen.length) return;
+    let current = lists.filter((l) => !l.archivedAt);
+    const listFor = async (monday: string) => {
+      const found = current.find((l) => l.kind === "week" && l.weekStart === monday);
+      if (found) return found.id;
+      const before = current.filter((l) => l.kind === "week" && l.weekStart! < monday).pop() ?? current.find((l) => l.kind === "ideas");
+      const after = before ? current.filter((l) => l.position > before.position).sort((a, b) => a.position - b.position)[0] : undefined;
+      const created = await createList({ name: weekListName(monday), kind: "week", weekStart: monday, position: before ? between(before.position, after?.position) : undefined });
+      if (created) current = [...current, created].sort((a, b) => a.position - b.position);
+      return created?.id;
+    };
+    const inputs: CardInput[] = [];
+    for (const s of chosen) {
+      const listId = await listFor(mondayOf(parseLocal(s.scheduledAt)));
+      if (!listId) return;
+      inputs.push({
+        listId,
+        title: s.title,
+        scheduledAt: s.scheduledAt,
+        status: "idee",
+        objective: s.objective,
+        campaignId: s.campaignId,
+        hook: s.hook ?? "",
+        caption: s.caption ?? "",
+        cta: s.cta ?? "",
+        brief: s.brief ?? "",
+        description: `Proposé par « Organiser mon mois » : ${s.reasons.join(", ") || "rythme de publication"}.`,
+        labelIds: labelIds([s.activity, s.platform, s.format]),
+      });
+    }
+    const created = await createCards(inputs);
+    if (created) {
+      const keys = new Set(chosen.map((c) => c.key));
+      setSlots((prev) => prev!.map((s) => (keys.has(s.key) ? { ...s, added: true, selected: false } : s)));
+      toast.success(`${created.length} carte(s) ajoutée(s) au tableau`);
+    }
+  }
+
+  const byWeek = new Map<string, NonNullable<typeof slots>>();
+  for (const s of slots ?? []) {
+    const m = mondayOf(parseLocal(s.scheduledAt));
+    byWeek.set(m, [...(byWeek.get(m) ?? []), s]);
+  }
+  const selected = (slots ?? []).filter((s) => s.selected && !s.added).length;
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-3 rounded-xl border bg-card p-3">
+        <Field label="Mois">
+          <select value={month} onChange={(e) => setMonth(e.target.value)} className="h-8 rounded-md bg-muted px-2 text-[13px]">
+            {months.map((m) => (
+              <option key={m} value={m}>
+                {capitalize(fmt(parseISO(`${m}-01`), "MMMM yyyy"))}
+              </option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Par semaine">
+          <input type="number" min={1} max={14} value={perWeek} onChange={(e) => setPerWeek(Math.max(1, Math.min(14, Number(e.target.value) || 1)))} className="h-8 w-16 rounded-md bg-muted px-2 text-[13px]" />
+        </Field>
+        <Field label="Plateformes">
+          <div className="flex gap-1">
+            {PLATFORM_KEYS.map((p) => {
+              const on = platforms.includes(p);
+              const l = [...labelById.values()].find((x) => x.key === p);
+              return (
+                <button key={p} type="button" aria-pressed={on} onClick={() => setPlatforms(on ? platforms.filter((x) => x !== p) : [...platforms, p])} className={cn("h-8 rounded-md px-2 text-[12px]", on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>
+                  {l?.name ?? p}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+        <Field label="Jours">
+          <div className="flex gap-0.5">
+            {DAYS.map(([n, l]) => {
+              const on = days.includes(n);
+              return (
+                <button key={n} type="button" aria-pressed={on} onClick={() => setDays(on ? days.filter((d) => d !== n) : [...days, n])} className={cn("h-8 w-7 rounded-md text-[12px]", on ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground")}>
+                  {l}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+        <Field label="Heures">
+          <input value={times} onChange={(e) => setTimes(e.target.value)} className="h-8 w-28 rounded-md bg-muted px-2 text-[13px]" />
+        </Field>
+        <button type="button" onClick={propose} className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground">
+          <Wand2 className="h-4 w-4" /> Proposer
+        </button>
+        {slots && ai.enabled && (
+          <input value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="Consignes pour l'IA (facultatif)" className="h-8 w-full rounded-md bg-muted px-2 text-[13px] outline-none" aria-label="Consignes pour l'IA" />
         )}
       </div>
-      <div className="flex flex-wrap items-center gap-2 border-t bg-muted/40 px-5 py-3">
-        {p.added ? (
-          <>
-            <span className="flex items-center gap-1.5 text-xs text-emerald-700 dark:text-emerald-300"><Check className="h-3.5 w-3.5" /> Ajoutée</span>
-            <Button variant="outline" size="sm" className="ml-auto" onClick={onOpen}>Ouvrir la fiche</Button>
-          </>
-        ) : (
-          <>
-            <Button variant="ghost" size="sm" onClick={onReject}><Trash2 /> Rejeter</Button>
-            <div className="ml-auto flex items-center gap-2">
-              <Input type="date" value={p.date} onChange={(e) => onChange({ date: e.target.value })} className="h-8 w-[150px] text-xs" aria-label="Date de publication (optionnelle)" />
-              <Button size="sm" onClick={onAdd}>{p.date ? "Ajouter au calendrier" : "Ajouter aux idées"}</Button>
+
+      {slots && (
+        <>
+          <p className="text-[12px] text-muted-foreground">{summary}. Répartition guidée par vos objectifs d'équilibre (Paramètres).</p>
+          {slots.length === 0 && <p className="py-8 text-center text-[13px] text-muted-foreground">Le rythme souhaité est déjà atteint ce mois-ci.</p>}
+          {[...byWeek.entries()].map(([monday, list]) => (
+            <section key={monday}>
+              <h3 className="mb-1.5 text-[12px] font-semibold text-muted-foreground">{weekListName(monday)}</h3>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {list.map((s) => {
+                  const pills = labelIds([s.activity, s.format]).map((id) => labelById.get(id)!).filter(Boolean);
+                  return (
+                    <div key={s.key} className={cn("flex gap-2.5 rounded-lg border bg-card p-2.5", s.added && "opacity-60")}>
+                      <button
+                        type="button"
+                        disabled={s.added}
+                        onClick={() => setSlots((p) => p!.map((x) => (x.key === s.key ? { ...x, selected: !x.selected } : x)))}
+                        className={cn("mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded border", (s.selected || s.added) && "border-primary bg-primary text-primary-foreground")}
+                        aria-label="Sélectionner"
+                        aria-pressed={s.selected}
+                      >
+                        {(s.selected || s.added) && <Check className="h-3 w-3" />}
+                      </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex flex-wrap items-center gap-1">
+                          {pills.map((l) => (
+                            <LabelPill key={l.id} label={l} />
+                          ))}
+                          <span className="ml-auto text-[11px] text-muted-foreground">{fmt(parseLocal(s.scheduledAt), "EEE d · HH:mm")}</span>
+                        </div>
+                        <input
+                          value={s.title}
+                          disabled={s.added}
+                          onChange={(e) => setSlots((p) => p!.map((x) => (x.key === s.key ? { ...x, title: e.target.value } : x)))}
+                          className="w-full bg-transparent text-[13px] font-medium outline-none"
+                          aria-label="Titre"
+                        />
+                        {s.hook ? <p className="text-[12px] text-muted-foreground">{s.hook}</p> : s.reasons.length > 0 && <p className="text-[11.5px] text-muted-foreground">{s.reasons.join(" · ")}</p>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ))}
+          {slots.length > 0 && (
+            <div className="sticky bottom-3 flex items-center gap-2 rounded-xl border bg-popover/95 p-2 pl-3 shadow-lg backdrop-blur">
+              <span className="text-[13px] text-muted-foreground">{selected} sélectionnée(s)</span>
+              {ai.enabled && (
+                <button type="button" onClick={write} disabled={writing || !selected} className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[13px] text-muted-foreground hover:bg-accent disabled:opacity-50">
+                  {writing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />} Rédiger avec l'IA
+                </button>
+              )}
+              <button type="button" onClick={importSelected} disabled={!selected} className={cn("h-8 rounded-md bg-primary px-3 text-[13px] font-medium text-primary-foreground disabled:opacity-50", !ai.enabled && "ml-auto")}>
+                Ajouter au tableau
+              </button>
             </div>
-          </>
-        )}
-      </div>
-    </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
+      {children}
+    </div>
   );
 }

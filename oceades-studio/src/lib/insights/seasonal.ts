@@ -1,5 +1,5 @@
 import { addDays, endOfMonth, format, isWithinInterval, lastDayOfMonth, parseISO, startOfMonth } from "date-fns";
-import type { Activity } from "@/lib/domain/constants";
+import type { ActivityKey as Activity } from "@/lib/domain/constants";
 
 /**
  * Temps forts saisonniers et commerciaux (France), avec des pistes éditoriales propres aux Océades.

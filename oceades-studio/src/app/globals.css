@@ -5,50 +5,54 @@
 @layer base {
   :root {
     --font-sans: "Inter Variable";
-    --background: 210 25% 98.5%;
-    --foreground: 205 39% 14%;
+    --background: 210 17% 97%;
+    --foreground: 210 24% 16%;
     --card: 0 0% 100%;
-    --card-foreground: 205 39% 14%;
+    --card-foreground: 210 24% 16%;
     --popover: 0 0% 100%;
-    --popover-foreground: 205 39% 14%;
-    /* #203849 – bleu Océades */
+    --popover-foreground: 210 24% 16%;
+    /* #203849 — bleu Océades */
     --primary: 205 39% 21%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 205 25% 94%;
-    --secondary-foreground: 205 39% 21%;
-    --muted: 205 20% 95%;
-    --muted-foreground: 205 12% 44%;
-    --accent: 205 30% 94%;
-    --accent-foreground: 205 39% 18%;
-    --destructive: 0 72% 51%;
+    --secondary: 210 14% 93%;
+    --secondary-foreground: 210 24% 16%;
+    --muted: 210 14% 94%;
+    --muted-foreground: 213 10% 42%;
+    --accent: 210 14% 92%;
+    --accent-foreground: 210 24% 16%;
+    --destructive: 4 66% 48%;
     --destructive-foreground: 0 0% 100%;
-    --border: 205 20% 89%;
-    --input: 205 20% 86%;
-    --ring: 205 39% 30%;
+    --border: 210 14% 88%;
+    --input: 210 14% 84%;
+    --ring: 205 50% 40%;
     --sidebar: 0 0% 100%;
-    --radius: 0.625rem;
+    --list: 220 13% 95%;
+    --tile: 0 0% 100%;
+    --radius: 0.5rem;
   }
   .dark {
-    --background: 206 33% 7%;
-    --foreground: 205 20% 92%;
-    --card: 206 30% 10%;
-    --card-foreground: 205 20% 92%;
-    --popover: 206 30% 11%;
-    --popover-foreground: 205 20% 92%;
-    --primary: 203 45% 66%;
-    --primary-foreground: 206 40% 10%;
-    --secondary: 206 25% 16%;
-    --secondary-foreground: 205 20% 92%;
-    --muted: 206 25% 14%;
-    --muted-foreground: 205 12% 62%;
-    --accent: 206 25% 17%;
-    --accent-foreground: 205 20% 94%;
-    --destructive: 0 62% 55%;
+    --background: 210 9% 12%;
+    --foreground: 210 14% 85%;
+    --card: 210 10% 15%;
+    --card-foreground: 210 14% 85%;
+    --popover: 210 9% 17%;
+    --popover-foreground: 210 14% 85%;
+    --primary: 205 45% 47%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 9% 20%;
+    --secondary-foreground: 210 14% 85%;
+    --muted: 210 9% 18%;
+    --muted-foreground: 213 9% 62%;
+    --accent: 210 8% 22%;
+    --accent-foreground: 210 14% 90%;
+    --destructive: 4 70% 58%;
     --destructive-foreground: 0 0% 100%;
-    --border: 206 22% 18%;
-    --input: 206 22% 22%;
-    --ring: 203 45% 60%;
-    --sidebar: 206 32% 8.5%;
+    --border: 210 8% 24%;
+    --input: 210 8% 28%;
+    --ring: 205 55% 55%;
+    --sidebar: 210 10% 10%;
+    --list: 216 12% 8%;
+    --tile: 210 10% 15%;
   }
   * { @apply border-border; }
   html { -webkit-font-smoothing: antialiased; }

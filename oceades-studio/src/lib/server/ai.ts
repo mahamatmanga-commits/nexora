@@ -82,69 +82,93 @@ async function generate<T extends z.ZodType>(schema: T, system: string, prompt: 
   }
 }
 
-/* ---------- Idées de publications ---------- */
+/* ---------- Idées de publications (assistant) ---------- */
+
+const ACTIVITY = z.enum(["fitness", "musculation", "aquatique", "institut", "global"]);
+const PLATFORM = z.enum(["instagram", "facebook", "tiktok", "linkedin", "meta_ads"]);
+const FORMAT = z.enum(["reel", "story", "carrousel", "photo", "video", "publicite", "article"]);
+const OBJECTIVE = z.enum(["notoriete", "engagement", "trafic", "conversion", "fidelisation"]);
 
 export const ideaSchema = z.object({
-  title: z.string().describe("Nom interne court de la publication"),
-  angle: z.string().describe("L'angle éditorial en une phrase : pourquoi ce contenu est intéressant pour l'audience"),
-  activity: z.enum(["fitness", "musculation", "aquatique", "institut", "global"]),
-  platform: z.enum(["instagram", "facebook", "tiktok", "linkedin"]),
-  format: z.enum(["reel", "story", "carrousel", "photo", "video", "publicite"]),
-  objective: z.enum(["notoriete", "engagement", "trafic", "conversion", "fidelisation"]),
-  hooks: z.array(z.string()).describe("3 accroches différentes pour la même idée"),
-  captionInstagram: z.string().describe("Légende prête à publier sur Instagram, avec hashtags en fin"),
-  captionFacebook: z.string().describe("Version Facebook, un peu plus explicative, sans excès de hashtags"),
-  cta: z.string().describe("Appel à l'action principal, concret"),
-  ctaAlternatives: z.array(z.string()).describe("2 autres appels à l'action possibles"),
-  reelScript: z
-    .array(z.object({ timing: z.string(), visual: z.string(), text: z.string() }))
-    .describe("Script plan par plan si le format est reel ou vidéo, sinon tableau vide"),
-  carouselSlides: z
-    .array(z.object({ title: z.string(), text: z.string() }))
-    .describe("Slides une par une si le format est carrousel, sinon tableau vide"),
-  shootingBrief: z.string().describe("Brief pour le photographe ou vidéaste : lieu, personnes, plans, lumière, matériel"),
-  formatAdvice: z.string().describe("Recommandation de format et pourquoi, alternatives éventuelles"),
-  suggestedDay: z.string().describe("Jour et heure conseillés, ou chaîne vide"),
+  title: z.string().describe("Titre court de la carte"),
+  angle: z.string().describe("Angle éditorial en une phrase"),
+  activity: ACTIVITY,
+  platforms: z.array(PLATFORM).describe("1 ou 2 plateformes"),
+  format: FORMAT,
+  objective: OBJECTIVE,
+  hooks: z.array(z.string()).describe("3 accroches différentes"),
+  caption: z.string().describe("Texte du post prêt à adapter, hashtags en fin"),
+  cta: z.string(),
+  script: z.string().describe("Script plan par plan pour un reel/une vidéo, ou déroulé slide par slide pour un carrousel ; sinon chaîne vide"),
+  brief: z.string().describe("Brief créatif pour la photo, la vidéo ou le visuel"),
 });
 export type AiIdea = z.infer<typeof ideaSchema>;
 
 export const ideasRequestSchema = z.object({
-  activity: z.enum(["fitness", "musculation", "aquatique", "institut", "global"]),
-  platform: z.enum(["instagram", "facebook", "tiktok", "linkedin"]),
-  format: z.enum(["reel", "story", "carrousel", "photo", "video", "publicite", "auto"]),
-  objective: z.enum(["notoriete", "engagement", "trafic", "conversion", "fidelisation"]),
-  audience: z.string().trim().max(300).default(""),
-  period: z.string().trim().max(120).default(""),
-  tone: z.string().trim().max(120).default("chaleureux et concret"),
-  count: z.number().int().min(1).max(6).default(3),
-  brief: z.string().trim().max(1500).default(""),
-  recentTitles: z.array(z.string().max(200)).max(80).default([]),
-  campaign: z.string().trim().max(1500).default(""),
+  prompt: z.string().trim().min(3).max(1500),
+  activity: ACTIVITY.nullable().default(null),
+  platform: PLATFORM.nullable().default(null),
+  format: FORMAT.nullable().default(null),
+  objective: OBJECTIVE.nullable().default(null),
+  count: z.number().int().min(1).max(8).default(5),
+  recentTitles: z.array(z.string().max(300)).max(120).default([]),
 });
 export type IdeasRequest = z.infer<typeof ideasRequestSchema>;
 
 export async function generateIdeas(req: IdeasRequest): Promise<AiIdea[]> {
-  const prompt = `Propose ${req.count} idée(s) de publication distinctes pour les Océades.
+  const constraints = [
+    req.activity && `activité : ${req.activity}`,
+    req.platform && `plateforme : ${req.platform}`,
+    req.format && `format : ${req.format}`,
+    req.objective && `objectif : ${req.objective}`,
+  ].filter(Boolean);
+  const prompt = `Demande : « ${req.prompt} »
+Nombre d'idées : ${req.count}
+${constraints.length ? `Contraintes : ${constraints.join(", ")}\n` : ""}
+Contenus déjà prévus ou publiés (ne pas les répéter, chercher d'autres angles) :
+${req.recentTitles.length ? req.recentTitles.map((t) => `- ${t}`).join("\n") : "- (aucun)"}
 
-Paramètres :
-- Activité : ${req.activity}
-- Réseau social : ${req.platform}
-- Format : ${req.format === "auto" ? "à recommander selon l'idée" : req.format}
-- Objectif marketing : ${req.objective}
-- Cible : ${req.audience || "adhérents et prospects du club"}
-- Période : ${req.period || "non précisée"}
-- Ton : ${req.tone}
-${req.campaign ? `- Campagne associée :\n${req.campaign}\n` : ""}${req.brief ? `- Consignes supplémentaires : ${req.brief}\n` : ""}
-Publications déjà prévues ou publiées récemment (ne pas les répéter, trouver des angles différents) :
-${req.recentTitles.length ? req.recentTitles.map((t) => `- ${t}`).join("\n") : "- (aucune)"}
-
-Chaque idée doit avoir un angle réellement différent des autres. Remplis reelScript uniquement pour un reel ou une vidéo,
-carouselSlides uniquement pour un carrousel (5 à 8 slides).`;
+Chaque idée doit avoir un angle réellement différent.`;
   const out = await generate(z.object({ ideas: z.array(ideaSchema) }), BRAND_CONTEXT, prompt);
   return out.ideas.slice(0, req.count);
 }
 
-/* ---------- Rédaction d'un planning ---------- */
+/* ---------- Aide à la rédaction depuis une carte ---------- */
+
+export const cardAssistRequestSchema = z.object({
+  cardId: z.string().min(1),
+  mode: z.enum(["descriptions", "script", "carousel"]),
+  instructions: z.string().trim().max(1000).default(""),
+});
+
+export const descriptionsSchema = z.object({
+  versions: z.array(z.object({ style: z.string().describe("Style en 2-3 mots"), text: z.string() })).describe("3 versions distinctes"),
+});
+export const scriptSchema = z.object({
+  hook: z.string(),
+  durationSeconds: z.number(),
+  shots: z.array(z.object({ timing: z.string(), visual: z.string(), voiceover: z.string().describe("Voix off, ou chaîne vide"), onScreenText: z.string() })),
+  cta: z.string(),
+});
+export const carouselSchema = z.object({
+  title: z.string().describe("Titre accrocheur de la première slide"),
+  slides: z.array(z.object({ title: z.string(), text: z.string(), visual: z.string().describe("Idée de visuel") })).describe("Slides de contenu"),
+  ctaSlide: z.object({ title: z.string(), text: z.string() }),
+});
+
+export async function assistCard(mode: "descriptions" | "script" | "carousel", context: string, instructions: string) {
+  const extra = instructions ? `\nConsignes : ${instructions}` : "";
+  switch (mode) {
+    case "descriptions":
+      return generate(descriptionsSchema, BRAND_CONTEXT, `${context}\n\nRédige 3 versions du texte du post, de styles différents (par exemple : directe, storytelling, pédagogique).${extra}`);
+    case "script":
+      return generate(scriptSchema, BRAND_CONTEXT, `${context}\n\nÉcris le script complet d'un Reel de 20 à 45 secondes : accroche, plan par plan avec timing, voix off éventuelle, textes à l'écran, CTA final.${extra}`);
+    case "carousel":
+      return generate(carouselSchema, BRAND_CONTEXT, `${context}\n\nConstruis un carrousel de 5 à 8 slides : titre accrocheur, contenu de chaque slide, idée de visuel par slide, dernière slide avec CTA.${extra}`);
+  }
+}
+
+/* ---------- Organiser mon mois ---------- */
 
 export const planSlotRequestSchema = z.object({
   key: z.string(),
@@ -159,7 +183,7 @@ export const planSlotRequestSchema = z.object({
 export const planRequestSchema = z.object({
   slots: z.array(planSlotRequestSchema).min(1).max(40),
   instructions: z.string().trim().max(1500).default(""),
-  recentTitles: z.array(z.string().max(200)).max(120).default([]),
+  recentTitles: z.array(z.string().max(300)).max(150).default([]),
 });
 export type PlanRequest = z.infer<typeof planRequestSchema>;
 
@@ -167,28 +191,23 @@ export const planIdeaSchema = z.object({
   key: z.string(),
   title: z.string(),
   hook: z.string(),
-  description: z.string().describe("Légende prête à adapter"),
+  caption: z.string(),
   cta: z.string(),
-  notes: z.string().describe("Brief de production court pour l'équipe (visuel, tournage, éléments à préparer)"),
+  brief: z.string().describe("Brief de production court"),
 });
 export type PlanIdea = z.infer<typeof planIdeaSchema>;
 
 export async function writePlanIdeas(req: PlanRequest): Promise<PlanIdea[]> {
-  const prompt = `Voici un planning éditorial déjà structuré (dates, activités, formats et objectifs équilibrés).
-Rédige une idée de publication pour CHAQUE créneau, en conservant exactement la clé "key" de chaque créneau.
-Les idées doivent toutes être différentes, cohérentes avec la date (saison, temps forts) et éviter les sujets déjà traités.
+  const prompt = `Voici des créneaux de publication déjà structurés (dates, activités, formats, objectifs équilibrés).
+Propose une idée pour CHAQUE créneau en conservant exactement sa clé "key". Toutes les idées doivent être différentes,
+cohérentes avec la date (saison, temps forts) et éviter les sujets déjà traités.
 ${req.instructions ? `\nConsignes de l'équipe : ${req.instructions}\n` : ""}
 Créneaux :
 ${req.slots
-  .map(
-    (s) =>
-      `- key=${s.key} | ${s.scheduledAt} | ${s.activity} | ${s.platform} | ${s.format} | objectif ${s.objective}` +
-      (s.campaign ? ` | campagne : ${s.campaign}` : "") +
-      (s.themeHint ? ` | piste : ${s.themeHint}` : ""),
-  )
+  .map((s) => `- key=${s.key} | ${s.scheduledAt} | ${s.activity} | ${s.platform} | ${s.format} | objectif ${s.objective}` + (s.campaign ? ` | campagne : ${s.campaign}` : "") + (s.themeHint ? ` | piste : ${s.themeHint}` : ""))
   .join("\n")}
 
-Sujets déjà traités récemment :
+Sujets déjà traités :
 ${req.recentTitles.length ? req.recentTitles.map((t) => `- ${t}`).join("\n") : "- (aucun)"}`;
   const out = await generate(z.object({ ideas: z.array(planIdeaSchema) }), BRAND_CONTEXT, prompt);
   return out.ideas;

@@ -6,12 +6,12 @@ import { Download, FileText, Images, Search, ShieldCheck, ShieldAlert, Tag, Tras
 import { MEDIA_CATEGORIES, MEDIA_CATEGORY_LABELS, type MediaCategory } from "@/lib/domain/constants";
 import type { MediaItem } from "@/lib/domain/types";
 import { mediaUrl, useData } from "@/lib/client/store";
-import { usePostEditor } from "@/components/posts/post-editor-provider";
+import { useCardModal } from "@/components/card/card-modal-provider";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input, Label, NativeSelect, Textarea } from "@/components/ui/input";
-import { EmptyState, PageHeader, Progress, Segmented } from "@/components/ui/misc";
+import { EmptyState, Progress, Segmented } from "@/components/ui/misc";
 import { cn, formatBytes, normalize } from "@/lib/utils";
 import { MediaThumb } from "./media-thumb";
 
@@ -23,7 +23,9 @@ interface UploadJob {
 }
 
 export function MediaPage() {
-  const { media, posts, uploadMedia } = useData();
+  const { media, cards, labels, uploadMedia } = useData();
+  const activityLabels = labels.filter((l) => l.family === "activite" && l.key);
+  const [activity, setActivity] = React.useState<string>("all");
   const [query, setQuery] = React.useState("");
   const [category, setCategory] = React.useState<MediaCategory | "all">("all");
   const [tag, setTag] = React.useState<string | null>(null);
@@ -35,15 +37,16 @@ export function MediaPage() {
 
   const usage = React.useMemo(() => {
     const map = new Map<string, number>();
-    for (const p of posts) for (const m of p.mediaIds) map.set(m, (map.get(m) ?? 0) + 1);
+    for (const p of cards) for (const m of p.attachmentIds) map.set(m, (map.get(m) ?? 0) + 1);
     return map;
-  }, [posts]);
+  }, [cards]);
 
   const allTags = React.useMemo(() => [...new Set(media.flatMap((m) => m.tags))].sort(), [media]);
   const q = normalize(query.trim());
   const visible = media.filter(
     (m) =>
       (category === "all" || m.category === category) &&
+      (activity === "all" || m.activity === activity) &&
       (!tag || m.tags.includes(tag)) &&
       (!q || normalize(`${m.name} ${m.originalName} ${m.tags.join(" ")} ${m.notes}`).includes(q)),
   );
@@ -80,7 +83,9 @@ export function MediaPage() {
         if (e.dataTransfer.files.length) void upload(e.dataTransfer.files);
       }}
     >
-      <PageHeader title="Médiathèque" description="Photos, vidéos, visuels et documents de campagne, au même endroit.">
+      <div className="flex items-center gap-2">
+        <h1 className="text-xl font-semibold tracking-tight">Médiathèque</h1>
+        <div className="ml-auto flex items-center gap-2">
         <Button onClick={() => fileInput.current?.click()}>
           <Upload /> Importer
         </Button>
@@ -95,13 +100,22 @@ export function MediaPage() {
             e.target.value = "";
           }}
         />
-      </PageHeader>
+        </div>
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[200px] flex-1 sm:max-w-xs">
           <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un média ou un tag…" className="pl-8" aria-label="Rechercher un média" />
         </div>
+        <select value={activity} onChange={(e) => setActivity(e.target.value)} aria-label="Activité" className="h-8 rounded-md border bg-card px-2 text-[13px]">
+          <option value="all">Toutes les activités</option>
+          {activityLabels.map((l) => (
+            <option key={l.id} value={l.key!}>
+              {l.name}
+            </option>
+          ))}
+        </select>
         <div className="overflow-x-auto">
           <Segmented
             value={category}
@@ -160,7 +174,7 @@ export function MediaPage() {
                   {MEDIA_CATEGORY_LABELS[m.category]} · {formatBytes(m.size)}
                   {m.rightsChecked ? <ShieldCheck className="ml-auto h-3.5 w-3.5 text-emerald-600" aria-label="Droits vérifiés" /> : <ShieldAlert className="ml-auto h-3.5 w-3.5 text-amber-500" aria-label="Droits à vérifier" />}
                 </span>
-                {!!usage.get(m.id) && <span className="text-[11px] text-primary">Utilisé dans {usage.get(m.id)} publication(s)</span>}
+                {!!usage.get(m.id) && <span className="text-[11px] text-primary">{usage.get(m.id)} carte(s)</span>}
               </div>
             </button>
           ))}
@@ -170,7 +184,7 @@ export function MediaPage() {
           <EmptyState icon={<Images />} title={media.length ? "Aucun média ne correspond" : "Glissez vos fichiers ici"}>
             {media.length
               ? "Modifiez la recherche ou les filtres."
-              : "Photos (JPG, PNG, WebP), vidéos (MP4, MOV, WebM) et PDF. Les fichiers sont stockés hors de la base de données, en flux, même volumineux."}
+              : "Photos, vidéos et PDF."}
           </EmptyState>
         </button>
       )}
@@ -191,15 +205,15 @@ export function MediaPage() {
 }
 
 function MediaDetail({ id, onClose }: { id: string; onClose: () => void }) {
-  const { media, posts, updateMedia, deleteMedia } = useData();
-  const { openPost } = usePostEditor();
+  const { media, cards, labels, updateMedia, deleteMedia } = useData();
+  const { openCard } = useCardModal();
   const item = media.find((m) => m.id === id);
-  const [draft, setDraft] = React.useState<Pick<MediaItem, "name" | "category" | "tags" | "rightsChecked" | "notes"> | null>(
-    item ? { name: item.name, category: item.category, tags: item.tags, rightsChecked: item.rightsChecked, notes: item.notes } : null,
+  const [draft, setDraft] = React.useState<Pick<MediaItem, "name" | "category" | "activity" | "tags" | "rightsChecked" | "notes"> | null>(
+    item ? { name: item.name, category: item.category, activity: item.activity, tags: item.tags, rightsChecked: item.rightsChecked, notes: item.notes } : null,
   );
   const [tagInput, setTagInput] = React.useState("");
   if (!item || !draft) return null;
-  const linked = posts.filter((p) => p.mediaIds.includes(item.id));
+  const linked = cards.filter((p) => p.attachmentIds.includes(item.id));
 
   function addTag() {
     const t = tagInput.trim().toLowerCase().replace(/^#/, "");
@@ -259,6 +273,19 @@ function MediaDetail({ id, onClose }: { id: string; onClose: () => void }) {
               </NativeSelect>
             </div>
             <div className="flex flex-col gap-1.5">
+              <Label>Activité</Label>
+              <NativeSelect value={draft.activity ?? ""} onChange={(e) => setDraft({ ...draft, activity: (e.target.value || null) as MediaItem["activity"] })}>
+                <option value="">—</option>
+                {labels
+                  .filter((l) => l.family === "activite" && l.key)
+                  .map((l) => (
+                    <option key={l.id} value={l.key!}>
+                      {l.name}
+                    </option>
+                  ))}
+              </NativeSelect>
+            </div>
+            <div className="flex flex-col gap-1.5">
               <Label htmlFor="m-tag">Tags</Label>
               <div className="flex flex-wrap gap-1">
                 {draft.tags.map((t) => (
@@ -296,7 +323,7 @@ function MediaDetail({ id, onClose }: { id: string; onClose: () => void }) {
               <Label>Utilisé dans</Label>
               {linked.length ? (
                 linked.map((p) => (
-                  <button key={p.id} type="button" className="truncate text-left text-xs text-primary hover:underline" onClick={() => { onClose(); openPost(p.id); }}>
+                  <button key={p.id} type="button" className="truncate text-left text-xs text-primary hover:underline" onClick={() => { onClose(); openCard(p.id); }}>
                     {p.title}
                   </button>
                 ))

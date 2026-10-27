@@ -8,13 +8,28 @@ export class ApiError extends Error {
   }
 }
 
+export const AUTHOR_KEY = "oceades.author";
+
+/** Nom de l'utilisateur local, utilisé pour l'historique et les commentaires. */
+export function currentAuthor(): string {
+  try {
+    return localStorage.getItem(AUTHOR_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export async function api<T>(url: string, init?: RequestInit & { json?: unknown }): Promise<T> {
   const { json, ...rest } = init ?? {};
   let response: Response;
+  const author = currentAuthor();
+  const headers: Record<string, string> = { ...(rest.headers as Record<string, string>) };
+  if (json !== undefined) headers["Content-Type"] = "application/json";
+  if (author) headers["X-Oceades-Author"] = encodeURIComponent(author);
   try {
     response = await fetch(url, {
       ...rest,
-      headers: json !== undefined ? { "Content-Type": "application/json", ...rest.headers } : rest.headers,
+      headers,
       body: json !== undefined ? JSON.stringify(json) : rest.body,
     });
   } catch {

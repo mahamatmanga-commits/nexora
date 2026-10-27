@@ -1,211 +1,144 @@
-import {
-  addDays,
-  eachDayOfInterval,
-  endOfMonth,
-  getISODay,
-  parseISO,
-  startOfMonth,
-  startOfWeek,
-} from "date-fns";
-import {
-  ACTIVITY_LABELS,
-  FORMAT_LABELS,
-  PLATFORM_FORMATS,
-  type Activity,
-  type Format,
-  type Objective,
-  type Platform,
-} from "@/lib/domain/constants";
-import type { Campaign, Post } from "@/lib/domain/types";
+import { addDays, eachDayOfInterval, endOfMonth, getISODay, parseISO, startOfMonth, startOfWeek } from "date-fns";
+import type { FormatKey, Objective, PlatformKey } from "@/lib/domain/constants";
+import type { Campaign, Card, Label } from "@/lib/domain/types";
+import { cardLabels, familyKeys, labelKey } from "@/lib/cards";
 import { dayKey, parseLocal } from "@/lib/dates";
 import { momentsBetween } from "./seasonal";
-import { tokens, similarity } from "./repetition";
+import { similarity, tokens } from "./repetition";
 
 /**
- * Générateur de planning éditorial — logique déterministe et explicable.
- * Il répartit les créneaux, équilibre activités / formats / objectifs en tenant compte de l'existant
- * et des campagnes, puis (optionnellement) l'IA rédige une idée pour chaque créneau.
+ * « Organiser mon mois » — logique déterministe et explicable :
+ * créneaux selon le rythme souhaité, activités choisies selon l'écart aux objectifs d'équilibre,
+ * formats alternés, campagnes et temps forts pris en compte. L'IA (optionnelle) rédige ensuite chaque idée.
  */
 
 export interface PlannerOptions {
-  month: string; // "AAAA-MM"
+  month: string; // AAAA-MM
   postsPerWeek: number;
-  activities: Activity[];
-  platforms: Platform[];
-  /** Jours ISO préférés : 1 = lundi … 7 = dimanche. */
-  preferredDays: number[];
-  /** Heures de publication proposées, en alternance. */
+  activities: string[]; // clés d'activité
+  platforms: PlatformKey[];
+  preferredDays: number[]; // 1 = lundi … 7 = dimanche
   preferredTimes: string[];
-  /** Compter les publications déjà prévues dans le rythme hebdomadaire. */
   countExisting: boolean;
 }
 
 export interface PlanSlot {
   key: string;
   scheduledAt: string;
-  activity: Activity;
-  platform: Platform;
-  format: Format;
+  activity: string;
+  platform: PlatformKey;
+  format: FormatKey;
   objective: Objective;
   campaignId: string | null;
-  themeHint: string | null;
-  rationale: string[];
+  title: string;
+  hint: string | null;
+  reasons: string[];
 }
 
-export interface PlanAnalysis {
-  existingInMonth: number;
-  existingByActivity: Record<string, number>;
-  underRepresented: Activity[];
-  moments: { name: string; start: string; end: string }[];
-  campaigns: { id: string; name: string }[];
+const FORMATS_BY_PLATFORM: Record<PlatformKey, FormatKey[]> = {
+  instagram: ["reel", "carrousel", "story", "photo"],
+  facebook: ["photo", "reel", "carrousel", "video"],
+  tiktok: ["video"],
+  linkedin: ["carrousel", "photo", "article", "video"],
+  meta_ads: ["publicite"],
+};
+const OBJECTIVES: Objective[] = ["notoriete", "engagement", "conversion", "engagement", "fidelisation", "trafic"];
+const FORMAT_NAMES: Record<string, string> = { reel: "Reel", story: "Story", carrousel: "Carrousel", photo: "Photo", video: "Vidéo", publicite: "Publicité", article: "Article" };
+
+function spread<T>(items: T[], count: number): T[] {
+  if (count >= items.length) return items;
+  const out: T[] = [];
+  const step = items.length / count;
+  for (let i = 0; i < count; i++) out.push(items[Math.floor(i * step + step / 2 - 0.5)]);
+  return [...new Set(out)];
 }
 
-const OBJECTIVE_ROTATION: Objective[] = ["notoriete", "engagement", "conversion", "engagement", "fidelisation", "trafic"];
+export function buildPlan(opts: PlannerOptions, cards: Card[], labelById: Map<string, Label>, campaigns: Campaign[], targets: Record<string, number>) {
+  const start = startOfMonth(parseISO(`${opts.month}-01`));
+  const end = endOfMonth(start);
+  const monthCards = cards.filter((c) => !c.archivedAt && c.scheduledAt && parseLocal(c.scheduledAt) >= start && parseLocal(c.scheduledAt) <= addDays(end, 1));
+  const activities = opts.activities.length ? opts.activities : ["fitness", "musculation", "aquatique", "institut"];
+  const platforms = opts.platforms.length ? opts.platforms : (["instagram", "facebook"] as PlatformKey[]);
+  const times = opts.preferredTimes.length ? opts.preferredTimes : ["12:15", "18:30"];
+  const days = opts.preferredDays.length ? opts.preferredDays : [1, 3, 5];
+  const activityName = (k: string) => [...labelById.values()].find((l) => l.family === "activite" && labelKey(l) === k)?.name ?? k;
 
-function spreadDays(candidates: Date[], count: number): Date[] {
-  if (count >= candidates.length) return candidates;
-  if (count <= 0) return [];
-  const result: Date[] = [];
-  const step = candidates.length / count;
-  for (let i = 0; i < count; i++) result.push(candidates[Math.min(candidates.length - 1, Math.floor(i * step + step / 2 - 0.5))]);
-  return [...new Set(result)];
-}
-
-export function buildPlan(
-  options: PlannerOptions,
-  posts: Post[],
-  campaigns: Campaign[],
-): { slots: PlanSlot[]; analysis: PlanAnalysis } {
-  const monthStart = startOfMonth(parseISO(`${options.month}-01`));
-  const monthEnd = endOfMonth(monthStart);
-  const monthPosts = posts.filter((p) => {
-    if (!p.scheduledAt) return false;
-    const d = parseLocal(p.scheduledAt);
-    return d >= monthStart && d <= addDays(monthEnd, 1);
-  });
-
-  const activities = options.activities.length ? options.activities : (["fitness", "musculation", "aquatique", "institut"] as Activity[]);
-  const platforms = options.platforms.length ? options.platforms : (["instagram", "facebook"] as Platform[]);
-  const times = options.preferredTimes.length ? options.preferredTimes : ["12:15", "18:30"];
-  const preferredDays = options.preferredDays.length ? options.preferredDays : [1, 3, 5];
-
-  // 1. Créneaux par semaine (semaines ISO qui touchent le mois).
-  const postsByDay = new Map<string, number>();
-  for (const p of monthPosts) postsByDay.set(p.scheduledAt!.slice(0, 10), (postsByDay.get(p.scheduledAt!.slice(0, 10)) ?? 0) + 1);
-
+  // 1. Créneaux par semaine, en tenant compte de l'existant.
+  const perDay = new Map<string, number>();
+  for (const c of monthCards) perDay.set(c.scheduledAt!.slice(0, 10), (perDay.get(c.scheduledAt!.slice(0, 10)) ?? 0) + 1);
   const dates: Date[] = [];
-  let weekStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-  while (weekStart <= monthEnd) {
-    const weekDays = eachDayOfInterval({ start: weekStart, end: addDays(weekStart, 6) }).filter(
-      (d) => d >= monthStart && d <= monthEnd,
-    );
-    const existing = options.countExisting ? weekDays.reduce((n, d) => n + (postsByDay.get(dayKey(d)) ?? 0), 0) : 0;
-    // Prorata pour les semaines partielles (début / fin de mois).
-    const quota = Math.round((options.postsPerWeek * weekDays.length) / 7);
-    const needed = Math.max(0, quota - existing);
-    let candidates = weekDays.filter((d) => preferredDays.includes(getISODay(d)));
-    if (candidates.length < needed) candidates = weekDays;
-    // On privilégie les jours sans publication existante.
-    const free = candidates.filter((d) => !postsByDay.get(dayKey(d)));
-    const pool = free.length >= needed ? free : candidates;
-    dates.push(...spreadDays(pool, needed));
-    weekStart = addDays(weekStart, 7);
+  for (let w = startOfWeek(start, { weekStartsOn: 1 }); w <= end; w = addDays(w, 7)) {
+    const week = eachDayOfInterval({ start: w, end: addDays(w, 6) }).filter((d) => d >= start && d <= end);
+    const existing = opts.countExisting ? week.reduce((n, d) => n + (perDay.get(dayKey(d)) ?? 0), 0) : 0;
+    const needed = Math.max(0, Math.round((opts.postsPerWeek * week.length) / 7) - existing);
+    let pool = week.filter((d) => days.includes(getISODay(d)));
+    if (pool.length < needed) pool = week;
+    const free = pool.filter((d) => !perDay.get(dayKey(d)));
+    dates.push(...spread(free.length >= needed ? free : pool, needed));
   }
   dates.sort((a, b) => a.getTime() - b.getTime());
 
-  // 2. Analyse de l'existant.
-  const existingByActivity: Record<string, number> = Object.fromEntries(activities.map((a) => [a, 0]));
-  for (const p of monthPosts) if (p.activity in existingByActivity) existingByActivity[p.activity]++;
-  const total = monthPosts.filter((p) => activities.includes(p.activity)).length + dates.length;
-  const target = total / activities.length;
-  const assigned: Record<string, number> = { ...existingByActivity };
-  const underRepresented = activities.filter((a) => existingByActivity[a] < target * 0.6);
-
+  // 2. Analyse : répartition actuelle vs objectifs.
+  const counts: Record<string, number> = Object.fromEntries(activities.map((a) => [a, 0]));
+  for (const c of monthCards) {
+    const a = familyKeys(c, labelById, "activite").find((k) => k in counts);
+    if (a) counts[a]++;
+  }
+  const existingByActivity = { ...counts };
+  const weight = (a: string) => Math.max(1, targets[a] ?? 100 / activities.length);
+  const totalWeight = activities.reduce((s, a) => s + weight(a), 0);
   const formatUse = new Map<string, number>();
-  for (const p of monthPosts) formatUse.set(`${p.activity}:${p.format}`, (formatUse.get(`${p.activity}:${p.format}`) ?? 0) + 1);
-  const globalFormatUse = new Map<Format, number>();
-  for (const p of monthPosts) globalFormatUse.set(p.format, (globalFormatUse.get(p.format) ?? 0) + 1);
+  for (const c of monthCards) for (const f of familyKeys(c, labelById, "format")) formatUse.set(f, (formatUse.get(f) ?? 0) + 1);
+  const moments = momentsBetween(start, end);
+  const monthCampaigns = campaigns.filter((c) => parseISO(c.startDate) <= end && parseISO(c.endDate) >= start);
+  const used = cards.filter((c) => !c.archivedAt).map((c) => tokens(`${c.title} ${c.hook}`));
 
-  const moments = momentsBetween(monthStart, monthEnd);
-  const monthCampaigns = campaigns.filter((c) => parseISO(c.startDate) <= monthEnd && parseISO(c.endDate) >= monthStart);
-  const usedThemes = monthPosts.map((p) => tokens(`${p.title} ${p.hook}`));
-
-  // 3. Attribution de chaque créneau.
+  // 3. Attribution.
   const slots: PlanSlot[] = [];
-  let prevActivity: Activity | null = null;
-  let prevFormat: Format | null = null;
-  let platformIndex = 0;
+  let prevActivity = "";
+  let prevFormat = "";
   dates.forEach((date, i) => {
     const day = dayKey(date);
-    const rationale: string[] = [];
-
-    // Activité : plus gros déficit par rapport à la cible, en évitant deux fois la même d'affilée.
-    const ranked = [...activities].sort((a, b) => assigned[a] - assigned[b]);
+    const reasons: string[] = [];
+    const total = Object.values(counts).reduce((a, b) => a + b, 0) + 1;
+    // Activité dont la part est la plus en retard sur son objectif.
+    const ranked = [...activities].sort((a, b) => counts[a] / total - weight(a) / totalWeight - (counts[b] / total - weight(b) / totalWeight));
     const activity = ranked.find((a) => a !== prevActivity) ?? ranked[0];
-    if (underRepresented.includes(activity) && existingByActivity[activity] === assigned[activity]) {
-      rationale.push(`${ACTIVITY_LABELS[activity]} est sous-représenté ce mois-ci`);
-    }
-    assigned[activity]++;
+    if (counts[activity] / total < (weight(activity) / totalWeight) * 0.7) reasons.push(`${activityName(activity)} en dessous de son objectif`);
+    counts[activity]++;
 
-    // Campagne active à cette date et pertinente pour l'activité.
-    const campaign = monthCampaigns.find(
-      (c) => c.startDate <= day && c.endDate >= day && (c.activities.includes(activity) || c.activities.includes("global")),
-    );
+    const platform = platforms[i % platforms.length];
+    const format = [...FORMATS_BY_PLATFORM[platform]].filter((f) => f !== prevFormat).sort((a, b) => (formatUse.get(a) ?? 0) - (formatUse.get(b) ?? 0))[0] ?? FORMATS_BY_PLATFORM[platform][0];
+    formatUse.set(format, (formatUse.get(format) ?? 0) + 1);
+    if ((formatUse.get(format) ?? 0) === 1) reasons.push(`format ${FORMAT_NAMES[format].toLowerCase()} peu utilisé ce mois-ci`);
 
-    // Plateforme : rotation sur les plateformes retenues.
-    let platform = platforms[platformIndex % platforms.length];
-    platformIndex++;
+    const campaign = monthCampaigns.find((c) => c.startDate <= day && c.endDate >= day && (c.activities.includes(activity as never) || c.activities.includes("global")));
+    const objective: Objective = campaign ? (i % 2 ? "trafic" : "conversion") : OBJECTIVES[i % OBJECTIVES.length];
+    if (campaign) reasons.push(`campagne « ${campaign.name} »`);
 
-    // Format : le moins utilisé pour cette activité, compatible avec la plateforme, différent du précédent.
-    const formats = PLATFORM_FORMATS[platform].filter((f) => f !== "publicite");
-    const format =
-      [...formats]
-        .filter((f) => f !== prevFormat)
-        .sort(
-          (a, b) =>
-            (formatUse.get(`${activity}:${a}`) ?? 0) - (formatUse.get(`${activity}:${b}`) ?? 0) ||
-            (globalFormatUse.get(a) ?? 0) - (globalFormatUse.get(b) ?? 0),
-        )[0] ?? formats[0];
-    formatUse.set(`${activity}:${format}`, (formatUse.get(`${activity}:${format}`) ?? 0) + 1);
-    globalFormatUse.set(format, (globalFormatUse.get(format) ?? 0) + 1);
-    if (!PLATFORM_FORMATS[platform].includes(format)) platform = platforms[0];
-
-    // Objectif : campagne → conversion/trafic, sinon rotation pour couvrir tout le tunnel.
-    let objective = OBJECTIVE_ROTATION[i % OBJECTIVE_ROTATION.length];
-    if (campaign) {
-      objective = i % 2 === 0 ? "conversion" : "trafic";
-      rationale.push(`Pendant la campagne « ${campaign.name} »`);
-    }
-
-    // Piste éditoriale : temps fort saisonnier, en évitant les sujets déjà traités.
-    let themeHint: string | null = null;
+    let hint: string | null = null;
     for (const m of moments.filter((m) => m.start <= day && m.end >= day)) {
-      const ideas = m.ideas[activity] ?? m.ideas.global ?? [];
-      const fresh = ideas.find((idea) => {
-        const t = tokens(idea);
-        return !usedThemes.some((u) => similarity(u, t) >= 0.3);
-      });
+      const fresh = (m.ideas[activity as keyof typeof m.ideas] ?? m.ideas.global ?? []).find((idea) => !used.some((u) => similarity(u, tokens(idea)) >= 0.3));
       if (fresh) {
-        themeHint = fresh;
-        usedThemes.push(tokens(fresh));
-        rationale.push(`Temps fort : ${m.name}`);
+        hint = fresh;
+        used.push(tokens(fresh));
+        reasons.push(`temps fort : ${m.name}`);
         break;
       }
     }
-    if (!themeHint && campaign?.keyMessages) themeHint = campaign.keyMessages.split("\n")[0];
-
-    rationale.push(`Format ${FORMAT_LABELS[format].toLowerCase()} pour varier les contenus ${ACTIVITY_LABELS[activity].toLowerCase()}`);
+    if (!hint && campaign?.keyMessages) hint = campaign.keyMessages.split("\n")[0];
 
     slots.push({
-      key: `slot-${i}-${day}`,
+      key: `s${i}-${day}`,
       scheduledAt: `${day}T${times[i % times.length]}`,
       activity,
       platform,
       format,
       objective,
       campaignId: campaign?.id ?? null,
-      themeHint,
-      rationale,
+      title: hint ?? `${FORMAT_NAMES[format]} ${activityName(activity)}`,
+      hint,
+      reasons,
     });
     prevActivity = activity;
     prevFormat = format;
@@ -214,11 +147,13 @@ export function buildPlan(
   return {
     slots,
     analysis: {
-      existingInMonth: monthPosts.length,
+      existing: monthCards.length,
       existingByActivity,
-      underRepresented,
-      moments: moments.map((m) => ({ name: m.name, start: m.start, end: m.end })),
-      campaigns: monthCampaigns.map((c) => ({ id: c.id, name: c.name })),
+      campaigns: monthCampaigns.map((c) => c.name),
+      moments: moments.map((m) => m.name),
+      activityName,
     },
   };
 }
+
+export { cardLabels };
