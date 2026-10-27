@@ -1,3 +1,5 @@
+> **Nouveau : [Océades Studio](./oceades-studio/README.md)** — application de calendrier éditorial pour les Océades (Next.js), dans le dossier `oceades-studio/`.
+
 # NOVA — Landing page SaaS
 
 Landing page premium pour **NOVA**, plateforme fictive de pilotage marketing (réseaux sociaux, campagnes, contenus, statistiques, clients).

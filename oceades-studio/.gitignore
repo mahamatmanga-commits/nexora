@@ -1,0 +1,9 @@
+node_modules
+.next
+next-env.d.ts
+*.tsbuildinfo
+# Données locales (base SQLite et fichiers médias)
+data/
+storage/
+.env
+.env.local
